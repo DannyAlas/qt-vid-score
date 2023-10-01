@@ -22,6 +22,9 @@ class VideoCapture(QMutex):
         super(VideoCapture, self).__init__()
         self.file = file
         self.frame_num = 0
+        self.len = 1
+        self.imw = 0
+        self.imh = 0
         self.connectVC()
         
     def updateStatus(self, msg: str, _log: bool = False):

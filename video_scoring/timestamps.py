@@ -346,9 +346,11 @@ class TimeStampsTreeView(QtWidgets.QTreeView):
 
 class KeyBoardShortcuts(QtWidgets.QDockWidget):
     """Reads a json file with keyboard shortcuts and displays them in a tree view. Allows the user to edit the key sequences."""
-    def __init__(self, parent=None):
+    def __init__(self, main_win: "MainWindow", parent=None):
         super().__init__(parent)
+        self.main_win = main_win
         self.tree_view = QtWidgets.QTreeView()
+        
         self.setWidget(self.tree_view)
         self.tree_view.setAlternatingRowColors(True)
         self.tree_view.setSortingEnabled(True)
@@ -357,11 +359,12 @@ class KeyBoardShortcuts(QtWidgets.QDockWidget):
         self.load_shortcuts()
         self.tree_view.expandAll()
         self.tree_view.doubleClicked.connect(self.edit_key_sequence)
+        self.register_handlers()
 
     def load_shortcuts(self):
         self.model.clear()
-        with open(r"C:\dev\projects\qt-vid-scoring\src\shortcuts.json", "r") as f:
-            shortcuts = json.load(f)
+        with open(r"C:\Users\danie\AppData\Local\Video Scoring\settings.json", "r") as f:
+            shortcuts = json.load(f)["key_bindings"]
         # two columns, one for the action, one for the key sequence
         self.model.setColumnCount(2)
         # headers: action, key sequence
@@ -392,35 +395,44 @@ class KeyBoardShortcuts(QtWidgets.QDockWidget):
         if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
             self.model.setData(index, keysequence.keySequence().toString())
 
-    def save_shortcuts(self):
-        shortcuts = {}
-        for i in range(self.model.rowCount()):
-            parent = self.model.item(i)
-            shortcuts[parent.text()] = []
-            for j in range(parent.rowCount()):
-                child = parent.child(j)
-                shortcuts[parent.text()].append(child.text())
-        with open(r"C:\dev\projects\qt-vid-scoring\src\shortcuts.json", "w") as f:
-            json.dump(shortcuts, f, indent=4)
+    def register_handlers(self):
+        self.main_win.register_hanlder({"help": self.help})
+        self.main_win.register_hanlder({"exit": self.exit})
+        
+    def help(self):
+        print("help!!!!")
+    
+    def exit(self):
+        print("exit!!!!")
     
 class MainWindow(QtWidgets.QMainWindow):
     """just a test for the time stamps tree view"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.tree_view = TimeStampsTreeView(ts_type="On/Off")
+        self.tree_view = TimeStampsTreeView(ts_type="Single")
         self.setCentralWidget(self.tree_view)
         self.tree_view.add_time_stamps([(0, 1), (1, 2), (2, 3), (3, 4)])
         # context menu to add and remove time stamps
         self.tree_view.setContextMenuPolicy(
             QtCore.Qt.ContextMenuPolicy.CustomContextMenu
         )
+        self.availble_handlers: list[dict[str, Any]] = []
         self.tree_view.customContextMenuRequested.connect(self.open_menu)
         # double click to edit time stamp line
         self.tree_view.doubleClicked.connect(self.edit_time_stamp)
+        self.key_bindings = json.loads(open(r"C:\Users\danie\AppData\Local\Video Scoring\settings.json", "r").read())["key_bindings"]
+        self.key_sequence_dock_widget = KeyBoardShortcuts(self)
+        self.key_sequence_dock_widget.load_shortcuts()
+        self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self.key_sequence_dock_widget)
+        
         self.removeChildrenFocus()
-        self.shortcuts = json.loads(open(r"C:\dev\projects\qt-vid-scoring\src\shortcuts.json", "r").read())
-        print(self.shortcuts)
+
+    
+    def register_hanlder(self, handler: dict[str, Any]):
+        # handler will be a dict with the action name and a reference to the method
+        self.availble_handlers.append(handler)
+                
 
     def removeChildrenFocus (self):
         # TODO: add method to save original focus policy and restore it
@@ -482,9 +494,14 @@ class MainWindow(QtWidgets.QMainWindow):
             sequence += "Meta+"
         sequence += QtGui.QKeySequence(key).toString()
         print(sequence)
-        for action, key_sequence in self.shortcuts.items():
+        for action, key_sequence in self.key_bindings.items():
             if str(key_sequence).capitalize() == sequence:
-                print(action)
+                # find if we have a handler for this action
+                for handler in self.availble_handlers:
+                    if handler.get(str(action)) is not None:
+                        print(f"calling handler for {action}")
+                        handler[str(action)]()
+                        return
         if (
             event.key() == QtCore.Qt.Key.Key_Z
             and event.modifiers() == QtCore.Qt.KeyboardModifier.ControlModifier

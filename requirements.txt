@@ -1,0 +1,13 @@
+annotated-types==0.5.0
+darkdetect==0.7.1
+numpy==1.26.0
+opencv-python==4.8.1.78
+packaging==23.1
+pydantic==2.4.2
+pydantic_core==2.10.1
+PyQt6==6.5.2
+PyQt6-Qt6==6.5.2
+PyQt6-sip==13.5.2
+pyqtdarktheme==2.1.0
+QtPy==2.4.0
+typing_extensions==4.8.0

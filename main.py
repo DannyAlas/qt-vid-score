@@ -33,12 +33,37 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Video Scoring Thing")
         self.qt_settings = QtCore.QSettings("Root Lab", "Video Scoring")
         self.project_settings = ProjectSettings()
+        # represents the handlers and callbacks for custom shortcuts
+        self.availble_handlers: List[dict[str, Any]] = []
         self.logging_level = logging_level
         self.create_main_widget()
         self.create_status_bar()
         self.load_settings_file()
         self.create_menu()
-        self.init_doc_widgets()
+        self.init_dock_widgets()
+        # Must be used to once all dockwidgets are registered to restore focus policy
+        self.removeChildrenFocus()
+        
+        
+        self.register_hanlder
+
+    def register_hanlder(self, handler: dict[str, Any]):
+        """Register an action handler. Represents an action name and callback association. Utilized to create custom shortcuts.
+        
+        Parameters
+        ----------
+        handler : dict[str, Any]
+            A dictionary with the name of the handler and a reference to the method to be called
+        """
+        self.availble_handlers.append(handler)
+                
+    def removeChildrenFocus (self):
+        """This is a hacky method so that the mainwidget always has focus. This is needed so that the shortcuts work. Should be called in the constructor after all dockwidgets are registered."""
+        def recursiveSetChildFocusPolicy (parentQWidget):
+            for childQWidget in parentQWidget.findChildren(QtWidgets.QWidget):
+                childQWidget.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
+                recursiveSetChildFocusPolicy(childQWidget)
+        recursiveSetChildFocusPolicy(self)
 
     def update_status(self, message, log_level=logging.INFO, do_log=True):
         if self.status_bar is not None:
@@ -139,7 +164,7 @@ class MainWindow(QMainWindow):
     def redo(self):
         pass
 
-    def init_doc_widgets(self):
+    def init_dock_widgets(self):
         self.open_settings_widget()
         self.settings_dock_widget.hide()
         from video_scoring.widgets.video.frontend import VideoPlayerDockWidget
@@ -276,7 +301,7 @@ class MainWindow(QMainWindow):
             log.addHandler(fileHandler)
 
     def help(self):
-        pass
+        print("help!!")
 
     def about(self):
         about_dialog = QtWidgets.QMessageBox()

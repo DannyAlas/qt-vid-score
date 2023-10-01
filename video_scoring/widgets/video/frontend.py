@@ -187,7 +187,9 @@ class VideoPlayerDockWidget(QDockWidget):
             self.timeline_widget.slider.update()
 
     def start(self, video_file):
-        self.video_widget.startPlayer(video_file)
-        self.timeline_widget.slider.setRange(0, self.video_widget.playWorker.vc.len)
-        self.toggle_play()
-    
+        try:
+                self.video_widget.startPlayer(video_file)
+                self.timeline_widget.slider.setRange(0, self.video_widget.playWorker.vc.len)
+                self.toggle_play()
+        except Exception as e:
+            print(e)
