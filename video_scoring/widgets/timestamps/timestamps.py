@@ -1,6 +1,10 @@
-from typing import Any, Dict, List, Tuple, Union, Literal
+from typing import Any, Dict, List, Tuple, Union, Literal, TYPE_CHECKING
 from qtpy import QtCore, QtWidgets, QtGui
 import json
+
+if TYPE_CHECKING:
+    from video_scoring import MainWindow
+
 
 class TupleTimestamps(list):
     """
@@ -35,20 +39,25 @@ class TupleTimestamps(list):
         self.sort(key=lambda x: x[0])
         self._check()
 
-    def _append(self, ts):
+    def _append_double(self, ts: Tuple[float, float]):
         if ts[0] > ts[1]:
             ts = (ts[1], ts[0])
         super().append((float(ts[0]), float(ts[1])))
         self.sort(key=lambda x: x[0])
+
         try:
             self._check()
         except ValueError as e:
-            super().remove(ts)
-            raise e
+            try:
+                super().remove(tuple(ts))
+            except:
+                print("FAILED:\t", self, tuple(ts))
 
-    def _extend(self, ts_list):
+            
+
+    def _extend(self, ts_list: List[Tuple[float, float]]):
         for ts in ts_list:
-            self._append(ts)
+            self._append_double(ts)
         self.sort(key=lambda x: x[0])
 
     def _remove(self, __value: Any) -> None:
@@ -58,9 +67,9 @@ class TupleTimestamps(list):
     def _edit(self, ts, new_ts):
         self._remove(ts)
         try:
-            self._append(new_ts)
+            self._append_double(new_ts)
         except Exception as e:
-            self._append(ts)
+            self._append_double(ts)
             raise e
 
     def _check(self):
@@ -78,11 +87,34 @@ class BehaviorTimeStamps(TupleTimestamps):
         super().__init__(*args)
         self.action_stack = []
         self.undone_action_stack = []
+        self._buffer = []
 
-    def append(self, ts):
-        super()._append(ts)
+    @property
+    def buffer(self):
+        return self._buffer
+
+    # setter for buffer
+    @buffer.setter
+    def buffer(self, value):
+        self._buffer = value
+
+    def append_single(self, ts):
+        if len(self.buffer) == 1:
+            # remove the old ts
+            _ = self.buffer[0]
+            super()._remove((self.buffer[0][0], self.buffer[0][0]))
+            self._append_double([_[0], ts[0]])
+            self.buffer = []
+        else:
+            self.buffer.append(ts)
+            super()._append_double([ts[0],ts[0]])
+        
         self.action_stack.append(("append", ts))
         self.undone_action_stack = []
+
+    def append_double(self, ts):
+        super()._append_double(ts)
+        self.action_stack.append(("append", ts))
 
     def extend(self, ts_list):
         super()._extend(ts_list)
@@ -113,7 +145,7 @@ class BehaviorTimeStamps(TupleTimestamps):
                     super()._remove(ts)
             elif action[0] == "remove":
                 self.undone_action_stack.append(("remove", action[1]))
-                super()._append(action[1])
+                super()._append_double(action[1])
             elif action[0] == "edit":
                 self.undone_action_stack.append(("edit", (action[1][1], action[1][0])))
                 super()._edit(action[1][1], action[1][0])
@@ -123,7 +155,7 @@ class BehaviorTimeStamps(TupleTimestamps):
             action = self.undone_action_stack.pop()
             if action[0] == "append":
                 self.action_stack.append(("append", action[1]))
-                super()._append(action[1])
+                super()._append_double(action[1])
             elif action[0] == "extend":
                 self.action_stack.append(("extend", action[1]))
                 super()._extend(action[1])
@@ -227,11 +259,11 @@ class TimeStampsModel(QtCore.QAbstractItemModel):
     def flags(self, index: QtCore.QModelIndex) -> QtCore.Qt.ItemFlag:
         return QtCore.Qt.ItemFlag.ItemIsEnabled | QtCore.Qt.ItemFlag.ItemIsSelectable
 
-    def add_time_stamp(self, ts):
+    def add_time_stamp(self, ts: Union[Tuple[float, float], float]):
         self.beginInsertRows(
             QtCore.QModelIndex(), len(self.time_stamps), len(self.time_stamps)
         )
-        self.time_stamps.append(ts)
+        self.time_stamps.append_single(ts)
         self.endInsertRows()
 
     def add_time_stamps(self, ts_list):
@@ -344,6 +376,7 @@ class TimeStampsTreeView(QtWidgets.QTreeView):
     def refresh(self):
         self.model.refresh()
 
+<<<<<<< Updated upstream:video_scoring/timestamps.py
 class KeyBoardShortcuts(QtWidgets.QDockWidget):
     """Reads a json file with keyboard shortcuts and displays them in a tree view. Allows the user to edit the key sequences."""
     def __init__(self, main_win: "MainWindow", parent=None):
@@ -373,28 +406,36 @@ class KeyBoardShortcuts(QtWidgets.QDockWidget):
             action_item = QtGui.QStandardItem(action)
             key_sequence_item = QtGui.QStandardItem(QtGui.QKeySequence(key_sequence).toString())
             self.model.appendRow((action_item, key_sequence_item))
+=======
 
+class TimeStampsDockwidget(QtWidgets.QDockWidget):
+    def __init__(self, main_win: "MainWindow", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Time Stamps")
+        self.main_win = main_win
+        self.main_widget = QtWidgets.QWidget()
+        self.setWidget(self.main_widget)
+        self.main_layout = QtWidgets.QVBoxLayout()
+        self.main_widget.setLayout(self.main_layout)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
+        self.main_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignTop)
+        self.create_widgets()
 
-    def edit_key_sequence(self, index):
-        dialog = QtWidgets.QDialog()
-        dialog.setWindowTitle("Edit key sequence")
-        dialog.resize(200, 100)
-        layout = QtWidgets.QVBoxLayout()
-        keysequence = QtWidgets.QKeySequenceEdit()
-        keysequence.setKeySequence(QtGui.QKeySequence(index.data()))
-        layout.addWidget(keysequence)
-        dialog.setLayout(layout)
-        button_layout = QtWidgets.QHBoxLayout()
-        ok_button = QtWidgets.QPushButton("Ok")
-        ok_button.clicked.connect(dialog.accept)
-        cancel_button = QtWidgets.QPushButton("Cancel")
-        cancel_button.clicked.connect(dialog.reject)
-        button_layout.addWidget(ok_button)
-        button_layout.addWidget(cancel_button)
-        layout.addLayout(button_layout)
-        if dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
-            self.model.setData(index, keysequence.keySequence().toString())
+    def create_widgets(self):
+        self.create_time_stamps_tree_view()
+        self.create_add_time_stamp_button()
+>>>>>>> Stashed changes:video_scoring/widgets/timestamps/timestamps.py
 
+    def create_time_stamps_tree_view(self):
+        self.time_stamps_tree_view = TimeStampsTreeView(ts_type="On/Off")
+        self.main_layout.addWidget(self.time_stamps_tree_view)
+
+    def create_add_time_stamp_button(self):
+        self.add_time_stamp_button = QtWidgets.QPushButton("Add Time Stamp")
+        self.main_layout.addWidget(self.add_time_stamp_button)
+
+<<<<<<< Updated upstream:video_scoring/timestamps.py
     def register_handlers(self):
         self.main_win.register_hanlder({"help": self.help})
         self.main_win.register_hanlder({"exit": self.exit})
@@ -433,15 +474,19 @@ class MainWindow(QtWidgets.QMainWindow):
         # handler will be a dict with the action name and a reference to the method
         self.availble_handlers.append(handler)
                 
+=======
+    def add_time_stamp(self, frame_num: int):
+        self.time_stamps_tree_view.add_time_stamp([frame_num])
 
-    def removeChildrenFocus (self):
-        # TODO: add method to save original focus policy and restore it
-        def recursiveSetChildFocusPolicy (parentQWidget):
-            for childQWidget in parentQWidget.findChildren(QtWidgets.QWidget):
-                childQWidget.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
-                recursiveSetChildFocusPolicy(childQWidget)
-        recursiveSetChildFocusPolicy(self)
+    def add_vid_time_stamp(self):
+        frame_num = self.main_win.get_frame_num()
+        if frame_num is None:
+            return
+>>>>>>> Stashed changes:video_scoring/widgets/timestamps/timestamps.py
 
+        self.add_time_stamp(frame_num)
+
+<<<<<<< Updated upstream:video_scoring/timestamps.py
     def open_menu(self, position):
         menu = QtWidgets.QMenu()
         add_action = menu.addAction("Add time stamp")
@@ -562,3 +607,10 @@ if __name__ == "__main__":
     w = MainWindow()
     w.show()
     app.exec()
+=======
+    # def import_ts(self, ts):
+    #     del self.time_stamps_tree_view
+    #     self.time_stamps_tree_view = TimeStampsTreeView(ts_type="On/Off")
+    #     self.main_layout.addWidget(self.time_stamps_tree_view)
+    #     self.time_stamps_tree_view.add_time_stamps(ts)
+>>>>>>> Stashed changes:video_scoring/widgets/timestamps/timestamps.py

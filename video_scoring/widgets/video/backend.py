@@ -4,21 +4,28 @@ from typing import Union, TYPE_CHECKING
 from PyQt6 import QtGui
 import cv2
 from PyQt6.QtCore import QMutex, QObject, Qt, QTimer, pyqtSignal, pyqtSlot, QThread
-from PyQt6.QtWidgets import (QApplication, QLabel, QMainWindow, QMenuBar,
-                             QSizePolicy, QSlider, QPushButton, QVBoxLayout,
-                             QWidget)
+from PyQt6.QtWidgets import (
+    QApplication,
+    QLabel,
+    QMainWindow,
+    QMenuBar,
+    QSizePolicy,
+    QSlider,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 from PyQt6.QtGui import QAction, QIcon, QImage, QPixmap
 import numpy as np
 
 if TYPE_CHECKING:
     import numpy as np
 
+
 class VideoCapture(QMutex):
     """holds the videoCapture object and surrounding functions"""
 
-    def __init__(
-        self, file
-    ):
+    def __init__(self, file):
         super(VideoCapture, self).__init__()
         self.file = file
         self.frame_num = 0
@@ -26,7 +33,7 @@ class VideoCapture(QMutex):
         self.imw = 0
         self.imh = 0
         self.connectVC()
-        
+
     def updateStatus(self, msg: str, _log: bool = False):
         """update the status bar by sending a signal"""
         print(msg)
@@ -38,10 +45,9 @@ class VideoCapture(QMutex):
     def connectVC(self):
         try:
             self.vc = cv2.VideoCapture(self.file)
-            self.vc.set(
-                cv2.CAP_PROP_BUFFERSIZE, 5000
-            )  # limit buffer size to one frame
+            self.vc.set(cv2.CAP_PROP_BUFFERSIZE, 5000)
             self.updateFPS(self.getFrameRate())
+            self.vc.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"mp4v"))
 
         except Exception as e:
             self.updateStatus(f"Failed connect open file: {e}")
@@ -51,8 +57,7 @@ class VideoCapture(QMutex):
             self.connected = True
         self.imw = int(self.vc.get(3))  # image width (px)
         self.imh = int(self.vc.get(4))  # image height (px)
-        self.len = int(self.vc.get(cv2.CAP_PROP_FRAME_COUNT))  # number of frames
-        
+        self.len = int(self.vc.get(cv2.CAP_PROP_FRAME_COUNT))
 
     def getFrameRate(self) -> float:
         """Determine the native device frame rate"""
@@ -82,7 +87,7 @@ class VideoCapture(QMutex):
         else:
             (status, frame) = self.vc.read()
             self.frame_num = int(self.vc.get(cv2.CAP_PROP_POS_FRAMES))
-        
+
         if not status:
             return np.array([])
         else:
@@ -94,9 +99,7 @@ class VideoCapture(QMutex):
             if self.vc is not None:
                 self.vc.release()
             else:
-                self.updateStatus(
-                    f"Cannot close VC", True
-                )
+                self.updateStatus(f"Cannot close VC", True)
         except:
             self.updateStatus(f"Error closing", True)
 
@@ -107,10 +110,9 @@ class VideoPlayerSignals(QObject):
     error = pyqtSignal(str, bool)
     frame = pyqtSignal(np.ndarray, int)
 
+
 class VideoPlayer(QObject):
-    def __init__(
-        self, video_file = None
-    ):
+    def __init__(self, video_file=None):
         super(VideoPlayer, self).__init__()
         self.signals = VideoPlayerSignals()
         self.play_timer = None
@@ -118,7 +120,7 @@ class VideoPlayer(QObject):
         self.started = False
         if video_file is not None:
             self.startPlayer(video_file)
-        
+
     def startPlayer(self, video_file) -> None:
         self.vc = VideoCapture(video_file)
         self.started = True
@@ -157,7 +159,7 @@ class VideoPlayer(QObject):
         if not self.started:
             return
         self.vc.lock()
-        self.signals.frame.emit(self.vc.get_frame(frame_num), self.vc.frame_num)
+        self.signals.frame.emit(self.vc.get_frame(frame_num - 1), self.vc.frame_num)
         self.vc.unlock()
 
     def updateFPS(self, fps):
@@ -173,8 +175,7 @@ class VideoPlayer(QObject):
             self.play_timer = None
         self.vc.updateFPS(fps)
 
-        
- 
+
 class VideoDisplay(QLabel):
     """A QLabel where we always repaint the most recent frame"""
 
@@ -193,12 +194,13 @@ class VideoDisplay(QLabel):
     def update(self):
         self.repaint()
 
+
 class VideoWidgetSignals(QObject):
     frame = pyqtSignal(int)
-  
+
+
 # a window with a VideoDisplay label for displaying the video
 class VideoWidget(QWidget):
-
     def __init__(self, video_file, parent=None):
         super(VideoWidget, self).__init__(parent)
         self.video_display = VideoDisplay()
@@ -208,14 +210,14 @@ class VideoWidget(QWidget):
         self.layout.addWidget(self.video_display)
         self.setLayout(self.layout)
         self.frame_num = 0
-        self.prevRunning = False
-        self.playThread = None
-        self.playWorker = None
+        self.running = False
+        self.play_thread = None
+        self.play_worker = None
         self.lastFrame = None
         self.framesSincePrev = 0
 
         self.startPlayer()
-        
+
     def updatePrevWindow(self, frame: np.ndarray) -> None:
         """Update the display with the new pixmap"""
         image = QImage(
@@ -244,104 +246,19 @@ class VideoWidget(QWidget):
 
     def startPlayer(self) -> None:
         """start updating preview"""
-        if not self.prevRunning:
-            self.prevRunning = True
-            self.playThread = QThread()
+        if not self.running:
+            self.running = True
+            self.play_thread = QThread()
             # Step 3: Create a worker object
-            self.playWorker = VideoPlayer(self.video_file)
+            self.play_worker = VideoPlayer(self.video_file)
             # Step 4: Move worker to the thread
-            self.playWorker.moveToThread(self.playThread)
+            self.play_worker.moveToThread(self.play_thread)
             # Step 5: Connect signals and slots
-            self.playWorker.signals.frame.connect(self.receivePrevFrame)
-            self.playWorker.signals.status.connect(self.updateStatus)
-            self.playWorker.signals.error.connect(self.updateStatus)
+            self.play_worker.signals.frame.connect(self.receivePrevFrame)
+            self.play_worker.signals.status.connect(self.updateStatus)
+            self.play_worker.signals.error.connect(self.updateStatus)
             # Step 6: Start the thread
-            self.playThread.start()
-
+            self.play_thread.start()
 
     def updateStatus(self, err, show):
         print(err, show)
-
-
-class MainWin(QMainWindow):
-
-    def __init__(self, video_file, parent=None):
-        super(MainWin, self).__init__(parent)
-        self.video_widget = VideoWidget(video_file)
-        self.video_widget.startPlayer()
-        # button to play/pause the video
-        self.play_button = QPushButton("Play")
-        self.play_button.clicked.connect(self.play_pause)
-        # layout
-        self.layout = QVBoxLayout()
-        self.layout.addWidget(self.video_widget)
-        self.layout.addWidget(self.play_button)
-        # timeline
-        self.timeline = QSlider(Qt.Orientation.Horizontal)
-        self.timeline.setRange(0, self.video_widget.playWorker.vc.len)
-        self.timeline.setValue(0)
-        self.timeline.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self.timeline.setTickInterval(1)
-        # update slider position when VideoWidget frame changes
-        self.video_widget.signals.frame.connect(self.updateSlider)
-        # update VideoWidget frame when slider position changes via user input
-        self.timeline.valueChanged.connect(self.sliderChanged)
-        
-        self.layout.addWidget(self.timeline)
-        # central widget        
-        self.central_widget = QWidget()
-        self.central_widget.setLayout(self.layout)
-        self.setCentralWidget(self.central_widget)
-        
-        self.prevRunning = False
-        self.playThread = None
-        self.playWorker = None
-        self.lastFrame = None
-        self.framesSincePrev = 0
-
-        # temp slider vals
-        self.last_slider_val = 0
-
-        # ovverride focus policy so that key presses are registered
-        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        
-
-    def play_pause(self):
-        if self.video_widget.playWorker.paused:
-            self.video_widget.playWorker.play()
-            self.play_button.setText("Pause")
-        else:
-            self.video_widget.playWorker.pause()
-            self.play_button.setText("Play")
-
-    def seek(self, frame_num: int):
-        """Seek to a frame number"""
-        self.video_widget.playWorker.seek(frame_num)
-
-    def sliderChanged(self, value):
-        if self.timeline.isSliderDown():
-            self.seek(value)
-            
-    def updateSlider(self, frame_num):
-        """update the slider position"""
-        # if the user is not moving the slider, update the slider position
-        if not self.timeline.isSliderDown():
-            self.timeline.setValue(frame_num)
-
-    # when right arrow is pressed, seek to the next frame
-    def keyPressEvent(self, event):
-        if event.key() == Qt.Key.Key_Right:
-            self.seek(self.video_widget.playWorker.vc.frame_num)
-        elif event.key() == Qt.Key.Key_Left:
-            self.seek(self.video_widget.playWorker.vc.frame_num - 2)
-        elif event.key() == Qt.Key.Key_Space:
-            self.play_pause()
-        # shift + d = increase fps
-        elif event.key() == Qt.Key.Key_D:
-            self.video_widget.playWorker.updateFPS(self.video_widget.playWorker.vc.fps + 1)
-        # shift + a = decrease fps
-        elif event.key() == Qt.Key.Key_A:
-            self.video_widget.playWorker.updateFPS(self.video_widget.playWorker.vc.fps - 1)
-        else:
-            super(MainWin, self).keyPressEvent(event)
-

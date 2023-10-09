@@ -5,6 +5,7 @@
 from unittest import skip
 from qtpy import QtWidgets, QtGui, QtCore
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from video_scoring.main import MainWindow
 from superqt import QDoubleRangeSlider
@@ -14,7 +15,7 @@ from superqt import QDoubleRangeSlider
 
 
 class Timeline(QtWidgets.QDockWidget):
-    def __init__(self, main_win: 'MainWindow', parent=None):
+    def __init__(self, main_win: "MainWindow", parent=None):
         super().__init__(parent)
         self.main_win = main_win
         # there will be four main components to the timeline, the slider top section will be a horizontal slider that will allow the user to move through the video with time stamps on the top and ticks on the bottom, the middle section will be the tracks, the bottom section will be the zoom slider, and the left section will be the track names and other controls
@@ -31,7 +32,6 @@ class Timeline(QtWidgets.QDockWidget):
         self.main_widget.setLayout(self.main_layout)
         self.main_layout.addWidget(self.slider)
         self.setWidget(self.main_widget)
-       
 
     def slider_value_changed(self, value):
         print(value)
@@ -50,7 +50,3 @@ class Timeline(QtWidgets.QDockWidget):
 
     def zoom_slider_released(self):
         print("zoom slider released")
-
-        
-        
-        

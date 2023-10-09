@@ -1,59 +1,56 @@
-
 __version__ = "0.0.1"
 
 import logging
+import re
 import sys
-from qtpy.QtWidgets import QApplication
-from video_scoring import MainWindow
+import os
+from typing import List, Literal, Optional, Any, Dict, Union, Tuple
+from qtpy import QtCore, QtGui, QtWidgets
+from qtpy.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QVBoxLayout,
+    QWidget,
+    QPushButton,
+    QSlider,
+    QWidget,
+)
+from qtpy.QtMultimedia import QMediaPlayer, QMediaMetaData, QAudioOutput
+from qtpy.QtMultimediaWidgets import QVideoWidget
+from qtpy.QtCore import QUrl, Qt
+from qtpy import QtGui, QtCore
+from video_scoring.settings import ProjectSettings
+from video_scoring.widgets.settings import SettingsDockWidget
+from video_scoring.widgets.timestamps import TimeStampsDockwidget
+import json
 import traceback as tb
 import qdarktheme
+import inspect
 
 log = logging.getLogger()
+
 
 def logging_exept_hook(exctype, value, trace):
     log.critical(f"{str(exctype).upper()}: {value}\n\t{tb.format_exc()}")
     sys.__excepthook__(exctype, value, trace)
 
+
 sys.excepthook = logging_exept_hook
 
-<<<<<<< Updated upstream
+
 class MainWindow(QMainWindow):
     def __init__(self, logging_level=logging.INFO):
         super().__init__()
         self.setWindowTitle("Video Scoring Thing")
         self.qt_settings = QtCore.QSettings("Root Lab", "Video Scoring")
         self.project_settings = ProjectSettings()
-        # represents the handlers and callbacks for custom shortcuts
-        self.availble_handlers: List[dict[str, Any]] = []
         self.logging_level = logging_level
         self.create_main_widget()
         self.create_status_bar()
         self.load_settings_file()
         self.create_menu()
-        self.init_dock_widgets()
-        # Must be used to once all dockwidgets are registered to restore focus policy
-        self.removeChildrenFocus()
-        
-        
-        self.register_hanlder
-
-    def register_hanlder(self, handler: dict[str, Any]):
-        """Register an action handler. Represents an action name and callback association. Utilized to create custom shortcuts.
-        
-        Parameters
-        ----------
-        handler : dict[str, Any]
-            A dictionary with the name of the handler and a reference to the method to be called
-        """
-        self.availble_handlers.append(handler)
-                
-    def removeChildrenFocus (self):
-        """This is a hacky method so that the mainwidget always has focus. This is needed so that the shortcuts work. Should be called in the constructor after all dockwidgets are registered."""
-        def recursiveSetChildFocusPolicy (parentQWidget):
-            for childQWidget in parentQWidget.findChildren(QtWidgets.QWidget):
-                childQWidget.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
-                recursiveSetChildFocusPolicy(childQWidget)
-        recursiveSetChildFocusPolicy(self)
+        self.init_doc_widgets()
+        self.init_shortcuts()
 
     def update_status(self, message, log_level=logging.INFO, do_log=True):
         if self.status_bar is not None:
@@ -68,7 +65,7 @@ class MainWindow(QMainWindow):
             log.error(message)
         elif log_level == logging.CRITICAL:
             log.critical(message)
-        
+
     def create_menu(self):
         self.menu = self.menuBar()
         if self.menu is None:
@@ -86,7 +83,7 @@ class MainWindow(QMainWindow):
             raise Exception("Failed to create import menu")
         self.import_menu.addAction("Import Video", self.import_video)
         self.import_menu.addAction("Import Timestamps", self.import_timestamps)
-        self.import_menu.addAction("Import TDT Tank", self.import_tdt_tank)        
+        self.import_menu.addAction("Import TDT Tank", self.import_tdt_tank)
         self.file_menu.addAction("Export Timestamps", self.export_timestamps)
         self.file_menu.addSeparator()
         self.file_menu.addAction("Exit", self.close)
@@ -104,7 +101,7 @@ class MainWindow(QMainWindow):
         self.dock_widgets_menu = self.view_menu.addMenu("Dock Widgets")
         if self.dock_widgets_menu is None:
             raise Exception("Failed to create dock widgets menu")
-        
+
         self.help_menu = self.menu.addMenu("Help")
         if self.help_menu is None:
             raise Exception("Failed to create help menu")
@@ -135,7 +132,9 @@ class MainWindow(QMainWindow):
             # open project
             file = file_dialog.selectedFiles()[0]
             self.project_settings.video_file_location = file
-            self.update_status(f"Imported video at {self.project_settings.video_file_location}")
+            self.update_status(
+                f"Imported video at {self.project_settings.video_file_location}"
+            )
             self.save_settings()
             self.video_player.start(file)
 
@@ -154,27 +153,84 @@ class MainWindow(QMainWindow):
     def redo(self):
         pass
 
-    def init_dock_widgets(self):
+    def init_doc_widgets(self):
         self.open_settings_widget()
         self.settings_dock_widget.hide()
         from video_scoring.widgets.video.frontend import VideoPlayerDockWidget
-        self.video_player = VideoPlayerDockWidget(self)
+
+        self.video_player = VideoPlayerDockWidget(self, self)
         # add as central widget
         self.setCentralWidget(self.video_player)
         self.dock_widgets_menu.addAction(self.video_player.toggleViewAction())
-        if self.project_settings.video_file_location is not None:
+        if os.path.exists(self.project_settings.video_file_location):
             self.video_player.start(self.project_settings.video_file_location)
+
+        self.timestamps_dock_widget = TimeStampsDockwidget(self, self)
+        self.addDockWidget(
+            QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self.timestamps_dock_widget
+        )
+        self.dock_widgets_menu.addAction(self.timestamps_dock_widget.toggleViewAction())
 
     def open_settings_widget(self):
         if not hasattr(self, "settings_dock_widget"):
             self.settings_dock_widget = SettingsDockWidget(self)
-            self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self.settings_dock_widget)
-            self.dock_widgets_menu.addAction(self.settings_dock_widget.toggleViewAction())
+            self.addDockWidget(
+                QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self.settings_dock_widget
+            )
+            self.dock_widgets_menu.addAction(
+                self.settings_dock_widget.toggleViewAction()
+            )
         else:
             self.settings_dock_widget.toggleViewAction()
         self.update_log_file()
-        
-        pass
+
+    def init_handlers(self):
+        """
+        Get all methods
+        """
+        self.shortcut_handlers = dict(
+            inspect.getmembers(self, predicate=inspect.ismethod)
+        )
+        for child in self.children():
+            self.shortcut_handlers.update(
+                dict(inspect.getmembers(child, predicate=inspect.ismethod))
+            )
+
+    def init_shortcuts(self):
+        self.init_handlers()
+        for action, key_sequence in self.project_settings.key_bindings.items():
+            self.register_shortcut(action, key_sequence)
+
+    def register_shortcut(self, action, key_sequence):
+        if key_sequence is None:
+            return
+        if not hasattr(self, "shortcut_handlers"):
+            self.init_handlers()
+
+        if action not in self.shortcut_handlers.keys():
+            self.update_status(f"Action {action} not found in shortcut handlers")
+            return
+        # if the action is already registered, update the key sequence
+        if action in [
+            shortcut.objectName() for shortcut in self.findChildren(QtWidgets.QShortcut)
+        ]:
+            shortcut = self.findChild(QtWidgets.QShortcut, action)
+            shortcut.setKey(QtGui.QKeySequence(key_sequence))
+            print(f"Updated shortcut for {action} to {key_sequence}")
+        else:
+            # create a new shortcut
+            shortcut = QtWidgets.QShortcut(QtGui.QKeySequence(key_sequence), self)
+            shortcut.setObjectName(action)
+            shortcut.activated.connect(self.shortcut_handlers[action])
+            print(f"Registered shortcut for {action} to {key_sequence}")
+
+    ############################# TimeStamp Actions #############################
+
+    def get_frame_num(self):
+        try:
+            return self.video_player.get_frame_num()
+        except:
+            return None
 
     ############################# File Menu Actions #############################
 
@@ -205,9 +261,13 @@ class MainWindow(QMainWindow):
             self.save_settings()
             # create new project
             self.project_settings = ProjectSettings()
-            self.project_settings.settings_file_location = file_dialog.selectedFiles()[0]
+            self.project_settings.settings_file_location = file_dialog.selectedFiles()[
+                0
+            ]
             self.project_settings.save()
-            self.update_status(f"Created new project at {self.project_settings.settings_file_location}")
+            self.update_status(
+                f"Created new project at {self.project_settings.settings_file_location}"
+            )
             self.load_settings_file()
 
     def open_project(self):
@@ -224,8 +284,10 @@ class MainWindow(QMainWindow):
             # open project
             self.project_settings = ProjectSettings()
             self.project_settings.load(file_dialog.selectedFiles()[0])
-            self.update_status(f"Opened project at {self.project_settings.settings_file_location}")
-            self.load_settings_file()    
+            self.update_status(
+                f"Opened project at {self.project_settings.settings_file_location}"
+            )
+            self.load_settings_file()
 
         for widget in self.findChildren(QtWidgets.QWidget):
             try:
@@ -238,11 +300,18 @@ class MainWindow(QMainWindow):
         self.update_log_file()
 
     def load_settings(self):
-        self.resize(self.project_settings.window_size[0], self.project_settings.window_size[1])
-        self.move(self.project_settings.window_position[0], self.project_settings.window_position[1])
+        self.resize(
+            self.project_settings.window_size[0], self.project_settings.window_size[1]
+        )
+        self.move(
+            self.project_settings.window_position[0],
+            self.project_settings.window_position[1],
+        )
 
     def save_settings(self, file_location=None):
-        self.qt_settings.setValue("latest_project_location", self.project_settings.settings_file_location)
+        self.qt_settings.setValue(
+            "latest_project_location", self.project_settings.settings_file_location
+        )
         self.project_settings.window_size = (self.width(), self.height())
         self.project_settings.window_position = (self.x(), self.y())
         self.update_log_file()
@@ -257,41 +326,41 @@ class MainWindow(QMainWindow):
         file_dialog.setDefaultSuffix("json")
         file_dialog.setDirectory(self.project_settings.settings_file_location)
         if file_dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
-            self.project_settings.settings_file_location = file_dialog.selectedFiles()[0]
+            self.project_settings.settings_file_location = file_dialog.selectedFiles()[
+                0
+            ]
             self.update_log_file()
             self.save_settings(file_dialog.selectedFiles()[0])
 
     def update_log_file(self):
-            if self.project_settings is None:
-                return
-            save_dir = os.path.abspath(os.path.dirname(self.project_settings.settings_file_location))
-            if not os.path.exists(save_dir):
-                os.makedirs(save_dir)
-            if not os.path.exists(
-                os.path.join(save_dir, "log.txt")
-            ):
-                # create a new log file
-                with open(
-                    os.path.join(save_dir, "log.txt"), "w"
-                ) as file:
-                    file.write("")
-            log = logging.getLogger()
-            fileHandler = logging.FileHandler(
-                f"{os.path.join(save_dir, 'log.txt')}"
+        if self.project_settings is None:
+            return
+        save_dir = os.path.abspath(
+            os.path.dirname(self.project_settings.settings_file_location)
+        )
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+        if not os.path.exists(os.path.join(save_dir, "log.txt")):
+            # create a new log file
+            with open(os.path.join(save_dir, "log.txt"), "w") as file:
+                file.write("")
+        log = logging.getLogger()
+        fileHandler = logging.FileHandler(f"{os.path.join(save_dir, 'log.txt')}")
+        fileHandler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s \n",
+                datefmt="%m/%d/%Y %I:%M:%S %p",
             )
-            fileHandler.setFormatter(
-                logging.Formatter(
-                    "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s \n",
-                    datefmt="%m/%d/%Y %I:%M:%S %p",
-                )
-            )
-            for handler in log.handlers:
-                if isinstance(handler, logging.FileHandler):
-                    log.removeHandler(handler)
-            log.addHandler(fileHandler)
+        )
+        for handler in log.handlers:
+            if isinstance(handler, logging.FileHandler):
+                log.removeHandler(handler)
+        log.addHandler(fileHandler)
 
     def help(self):
-        print("help!!")
+        # open browser to github
+        help_url = QUrl("https://danielalas.com")
+        QtGui.QDesktopServices.openUrl(help_url)
 
     def about(self):
         about_dialog = QtWidgets.QMessageBox()
@@ -304,137 +373,3 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self.save_settings()
         event.accept()
-=======
->>>>>>> Stashed changes
-
-if __name__ == "__main__":
-
-    app = QApplication(sys.argv)
-    main_window = MainWindow()
-
-    qss = """
-    * {
-        font-size: 12px;
-    }
-    QToolTip {
-        font-size: 12px;
-        color: #000000;
-    }
-    QTreeWidget {
-        font-size: 15px;
-        font-weight: 400;
-    }
-    QTreeWidget::item {
-        height: 30px;
-    }
-    QListWidget {
-        font-size: 15px;
-        font-weight: 400;
-    }
-    QLabel {
-        font-size: 15px;
-        font-weight: 600;
-    }
-    QSpinBox {
-        height: 30px;
-        font-size: 15;
-        font-weight: 400;
-    }
-    QLineEdit {
-        height: 30px;
-        font-size: 15px;
-        font-weight: 400;
-    }
-    QComboBox {
-        height: 30px;
-        font-size: 15;
-        font-weight: 400;
-    }
-    QRangeSlider {
-        height: 30px;
-        spacing: 10px;
-        color: #FFFFFF; 
-    }
-    QSlider {
-        padding: 2px 0;
-    }
-    QSlider::groove {
-        border-radius: 2px;
-    }
-    QSlider::groove:horizontal {
-        height: 4px;
-    }
-    QSlider::groove:vertical {
-        width: 4px;
-    }
-    QSlider::sub-page:horizontal,
-    QSlider::add-page:vertical,
-    QSlider::handle {
-        background: #D0BCFF;
-    }
-    QSlider::sub-page:horizontal:disabled,
-    QSlider::add-page:vertical:disabled,
-    QSlider::handle:disabled {
-        background: #D0BCFF;
-    }
-    QSlider::add-page:horizontal,
-    QSlider::handle:hover,
-    QSlider::handle:pressed {
-        background: #D0BCFF;
-    }
-    QSlider::handle:horizontal {
-        width: 16px;
-        height: 8px;
-        margin: -6px 0;
-        border-radius: 8px;
-    }
-    QSlider::handle:vertical {
-        width: 8px;
-        height: 16px;
-        margin: 0 -6px;
-        border-radius: 8px;
-    }
-
-
-    """
-    def load_stylesheet():
-        # get the dark theme stylesheet
-        stylesheet = qdarktheme.load_stylesheet()
-        # a simple qss parser
-        # the stylesheet is one string with no newlines
-        # remove anything contained within { and }
-        d = {}
-        opened_curly = 0
-        selector_txt = ''
-        out = ''
-        add_lb = False
-        for i, char in enumerate(stylesheet):
-
-            if char == '{':
-                opened_curly += 1
-                # back track to find the start of the selector if we are at the start of a selector
-                if opened_curly == 1:
-                    j = i
-                    while stylesheet[j] != '}':
-                        j -= 1
-                    selector_txt = stylesheet[j+1:i]
-            if char == '}':
-                opened_curly -= 1
-                if opened_curly == 0: 
-                    add_lb = True
-                else: 
-                    add_lb = False
-
-
-            if selector_txt.__contains__('QSlider'):
-                out += ""
-            else:
-                out += char
-                if add_lb: 
-                    out += '\n'
-                    add_lb = False
-        return out.replace("""{\nborder:1px solid rgba(63, 64, 66, 1.000);border-radius:4px}""", "").replace("QSlider ", "")
-    app.setStyleSheet(load_stylesheet())
-    # qdarktheme.setup_theme(theme='auto', corner_shape='rounded', custom_colors={"primary": "#D0BCFF"}, additional_qss=qss)
-    main_window.show()
-    sys.exit(app.exec())

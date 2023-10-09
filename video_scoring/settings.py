@@ -7,6 +7,7 @@ import logging
 
 log = logging.getLogger()
 
+
 def user_data_dir(file_name):
     r"""
     Get OS specific data directory path for Video Scoring.
@@ -33,10 +34,12 @@ def user_data_dir(file_name):
 
     return os.path.join(path, file_name)
 
+
 class AbstSettings(BaseModel):
     @staticmethod
     def help_text() -> dict:
         raise NotImplementedError
+
 
 class Scoring(AbstSettings):
     scoring_type: Literal["onset/offset", "single"] = "onset/offset"
@@ -56,6 +59,7 @@ class Scoring(AbstSettings):
         log.debug(f"Setting\t{name}\tto\t{value}")
         return super().__setattr__(name, value)
 
+
 class Playback(AbstSettings):
     seek_video_small: int = 1
     seek_video_medium: int = 100
@@ -64,7 +68,6 @@ class Playback(AbstSettings):
     seek_timestamp_small: int = 1
     seek_timestamp_medium: int = 10
     seek_timestamp_large: int = 100
-    
 
     @staticmethod
     def help_text():
@@ -82,13 +85,14 @@ class Playback(AbstSettings):
         log.debug(f"Setting\t{name}\tto\t{value}")
         return super().__setattr__(name, value)
 
+
 class KeyBindings(AbstSettings):
     exit: str = "Q"
     help: str = "H"
     save_timestamp: str = "S"
     show_stats: str = "T"
     undo_last_timestamp_save: str = "Ctrl+Z"
-    pause: str = "Space"
+    toggle_play: str = "Space"
     seek_forward_small_frames: str = "D"
     seek_back_small_frames: str = "A"
     seek_forward_medium_frames: str = "Shift+D"
@@ -109,7 +113,7 @@ class KeyBindings(AbstSettings):
     select_offset_timestamp: str = "right"
     set_player_to_selected_timestamp: str = "enter"
     delete_selected_timestamp: str = "delete"
-    
+
     @staticmethod
     def help_text():
         return {
@@ -118,7 +122,7 @@ class KeyBindings(AbstSettings):
             "save_timestamp": "Save timestamp of current frame",
             "show_stats": "Display the current stats",
             "undo_last_timestamp_save": "Undo last timestamp save",
-            "pause": "Pause/play",
+            "toggle_play": "Pause/play",
             "seek_forward_small_frames": "Seek forward by seek_small frames",
             "seek_back_small_frames": "Seek backward by seek_small frames",
             "seek_forward_medium_frames": "Seek forward by seek_medium frames",
@@ -140,13 +144,14 @@ class KeyBindings(AbstSettings):
             "set_player_to_selected_timestamp": "Set the player to the selected timestamp",
             "delete_selected_timestamp": "Delete the selected timestamp",
         }
-        
+
     def __setattr__(self, name: str, value: Any) -> None:
-            log.debug(f"Setting\t{name}\tto\t{value}")
-            return super().__setattr__(name, value)
+        log.debug(f"Setting\t{name}\tto\t{value}")
+        return super().__setattr__(name, value)
 
     def items(self):
         return self.__dict__.items()
+
 
 class ProjectSettings(AbstSettings):
     project_name: str = ""
@@ -177,7 +182,7 @@ class ProjectSettings(AbstSettings):
 
     def save(self, file_location=None):
         if file_location is None:
-            file_location = self.settings_file_location        
+            file_location = self.settings_file_location
         if not os.path.exists(os.path.dirname(file_location)):
             os.makedirs(os.path.dirname(file_location))
         with open(file_location, "w") as f:
