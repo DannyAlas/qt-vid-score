@@ -44,7 +44,7 @@ class AbstSettings(BaseModel):
 class Scoring(AbstSettings):
     scoring_type: Literal["onset/offset", "single"] = "onset/offset"
     save_frame_or_time: Literal["frame", "timestamp"] = "frame"
-    text_color: str = "255,0,0"
+    text_color: str = "#FFFFFF"
 
     @staticmethod
     def help_text():
@@ -156,6 +156,7 @@ class KeyBindings(AbstSettings):
 class ProjectSettings(AbstSettings):
     project_name: str = ""
     settings_file_location: str = user_data_dir("settings.json")
+    theme: Literal["dark", "light"] = "dark"
     video_file_location: str = ""
     video_file_name: str = ""
     timestamp_file_location: str = ""
@@ -171,6 +172,7 @@ class ProjectSettings(AbstSettings):
             project_settings = json.load(f)
             self.project_name = project_settings["project_name"]
             self.settings_file_location = project_settings["settings_file_location"]
+            self.theme = project_settings["theme"]
             self.video_file_location = project_settings["video_file_location"]
             self.video_file_name = project_settings["video_file_name"]
             self.scoring = Scoring(**project_settings["scoring"])
@@ -195,6 +197,7 @@ class ProjectSettings(AbstSettings):
     def help_text(self):
         return {
             "project_name": "Name of the project",
+            "theme": "Theme of the application",
             "settings_file_location": "Location of the settings file",
             "video_file_location": "Location of the video file",
             "video_file_name": "Name of the video file",

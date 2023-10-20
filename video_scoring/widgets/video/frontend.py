@@ -1,6 +1,5 @@
 from typing import Union, TYPE_CHECKING
 from qtpy import QtGui, QtCore
-import cv2
 from PyQt6.QtCore import QObject, Qt, pyqtSignal, pyqtSlot, QThread
 from PyQt6.QtWidgets import (
     QStyleOptionSlider,
@@ -15,9 +14,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QImage, QPixmap
 import numpy as np
 from video_scoring.widgets.video.backend import VideoPlayer
-import numpy as np
 if TYPE_CHECKING:
-    import numpy as np
     from video_scoring import MainWindow
 
 
@@ -395,13 +392,18 @@ class VideoPlayerDockWidget(QDockWidget):
     def save_timestamp(self):
         # get the current frame number
         frame_num = self.video_widget.play_worker.vc.frame_num
-        # get the current timestamps from the main window
-        #self.timeline_widget.slider.set_secondary_slider_pos
-        ts = self.main_win.timestamps_dock_widget.time_stamps_tree_view.model.time_stamps
-        # ts is a list of tuples containing floats convert to just a list
-        import numpy as np
-        self.main_win.timestamps_dock_widget.add_time_stamp(frame_num)
-        ts = np.unique(np.asarray(ts).flatten().astype(np.int32)).tolist()
+        self.main_win.timestamps_dock_widget.add_vid_time_stamp(frame_num)
+        _ts = self.main_win.timestamps_dock_widget.table_widget.timestamps
+        # _ts is a dict of onset:{offset:float, sure:bool} 
+        # convert to a list containing all the onsets and offsets
+        ts = []
+        for onset, offset_dict in _ts.items():
+            ts.append(onset)
+            # if offset is not None:
+            if offset_dict["offset"] is not None:
+                ts.append(offset_dict["offset"])
+            
+        
         self.timeline_widget.slider.set_secondary_slider_pos(ts)
 
     def update_timeline(self, frame_num):
@@ -409,15 +411,5 @@ class VideoPlayerDockWidget(QDockWidget):
             self.timeline_widget.slider.setValue(frame_num)
             self.timeline_widget.slider.update()
 
-<<<<<<< Updated upstream
-    def start(self, video_file):
-        try:
-                self.video_widget.startPlayer(video_file)
-                self.timeline_widget.slider.setRange(0, self.video_widget.playWorker.vc.len)
-                self.toggle_play()
-        except Exception as e:
-            print(e)
-=======
     def get_frame_num(self):
         return self.video_widget.play_worker.vc.frame_num
->>>>>>> Stashed changes

@@ -44,13 +44,23 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Video Scoring Thing")
         self.qt_settings = QtCore.QSettings("Root Lab", "Video Scoring")
         self.project_settings = ProjectSettings()
+        self.icons_dir = os.path.join(os.path.dirname(__file__), "Images")
         self.logging_level = logging_level
         self.create_main_widget()
         self.create_status_bar()
         self.load_settings_file()
         self.create_menu()
         self.init_doc_widgets()
-        self.init_shortcuts()
+        self.init_key_shortcuts()
+
+    def _get_icon(self, icon_name):
+        # are we in dark mode?
+        if self.project_settings.theme == "dark":
+            icon_path = os.path.join(self.icons_dir, "dark", icon_name)
+        elif self.project_settings.theme == "light":
+            icon_path = os.path.join(self.icons_dir, "light", icon_name)
+        else:
+            raise Exception(f"Theme {self.project_settings.theme} not recognized")
 
     def update_status(self, message, log_level=logging.INFO, do_log=True):
         if self.status_bar is not None:
@@ -196,7 +206,7 @@ class MainWindow(QMainWindow):
                 dict(inspect.getmembers(child, predicate=inspect.ismethod))
             )
 
-    def init_shortcuts(self):
+    def init_key_shortcuts(self):
         self.init_handlers()
         for action, key_sequence in self.project_settings.key_bindings.items():
             self.register_shortcut(action, key_sequence)
@@ -216,13 +226,25 @@ class MainWindow(QMainWindow):
         ]:
             shortcut = self.findChild(QtWidgets.QShortcut, action)
             shortcut.setKey(QtGui.QKeySequence(key_sequence))
-            print(f"Updated shortcut for {action} to {key_sequence}")
         else:
             # create a new shortcut
             shortcut = QtWidgets.QShortcut(QtGui.QKeySequence(key_sequence), self)
             shortcut.setObjectName(action)
             shortcut.activated.connect(self.shortcut_handlers[action])
-            print(f"Registered shortcut for {action} to {key_sequence}")
+
+    def change_theme(self, theme: Literal["dark", "light"]):
+        self.project_settings.theme = theme
+        print(f"Changing theme to {theme}")
+        qdarktheme.setup_theme(theme)
+        # get the current app
+        app = QtWidgets.QApplication.instance()
+        # update all widgets
+        for widget in app.allWidgets():
+            try:
+                widget.setStyleSheet("")
+                widget.setStyleSheet(qdarktheme.load_stylesheet(theme))
+            except:
+                pass
 
     ############################# TimeStamp Actions #############################
 
@@ -307,6 +329,7 @@ class MainWindow(QMainWindow):
             self.project_settings.window_position[0],
             self.project_settings.window_position[1],
         )
+        self.change_theme(self.project_settings.theme)
 
     def save_settings(self, file_location=None):
         self.qt_settings.setValue(

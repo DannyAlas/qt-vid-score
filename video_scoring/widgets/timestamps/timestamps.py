@@ -5,408 +5,350 @@ import json
 if TYPE_CHECKING:
     from video_scoring import MainWindow
 
+class customTableWidget(QtWidgets.QTableWidget):
+    """A a custom table widget that adds a border around selected rows"""
 
-class TupleTimestamps(list):
-    """
-    Implements a list of time stamps as tuples. Ensures the first time stamps of the tuple is always smaller than the second ts, sorts by the first ts. Raises a ValueError if two time stamps tuples overlap. Implements a stack like interface for un/redoing time stamps.
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
 
-    Parameters
-    ----------
-    list : list of tuples
-        List of tuples of time stamps
+    def selectionChanged(self, selected, deselected):
+        """When a row is selected, add a border around it"""
+        super().selectionChanged(selected, deselected)
+        self.viewport().update()
 
-    Example
-    -------
-    >>> ts = TimeStamps([(3, 4), (5, 6)])
-    >>> ts.append((2.1, 2))
-    >>> ts.append((1, 2))
-    >>> ts.extend([(0, 1), (0.5, 1.5)])
-    >>> print(ts)
-    [(0, 1), (0.5, 1.5), (1, 2), (2.1, 2), (3, 4), (5, 6)]
+    def paintEvent(self, event):
+        """Paint the border around the selected row"""
+        super().paintEvent(event)
+        if self.selectionModel() is not None:
+            for row in range(self.rowCount()):
+                if self.isRowSelected(row):
+                    option = QtWidgets.QStyleOptionFrame()
+                    option.initFrom(self)
+                    painter = QtGui.QPainter(self.viewport())
+                    option.lineWidth = 10
+                    style = QtWidgets.QApplication.style()
+                    # get the size of the row
+                    rect = style.subElementRect(QtWidgets.QStyle.SE_ItemViewItemDecoration, option, self)
+                    # set the size of the border
+                    rect.setLeft(0)
+                    rect.setRight(self.viewport().width())
+                    rect.setTop(rect.top() + 5)
+                    rect.setBottom(rect.bottom() - 5)
+                    # set the color to red
+                    option.palette.setColor(QtGui.QPalette.WindowText, QtGui.QColor('red'))
+                    # draw the border
+                    style.drawPrimitive(QtWidgets.QStyle.PE_PanelItemViewItem, option, painter, self)
+                    
+                    
+                   
+                    
 
-    >>> ts = TimeStamps([(0, 1), (0.5, 1.5), (1.5, 2.5)])
-    >>> ts.append((1, 2))
-        ValueError: Time stamp (1, 2) overlaps with (1.5, 2.5)
+    def isRowSelected(self, row):
+        """Check if a row is selected"""
+        model = self.selectionModel()
+        return model is not None and model.isRowSelected(row, QtCore.QModelIndex())
+    
 
-    Raises
-    ------
-        ValueError: If two time stamps overlap
+class TsWidget(QtWidgets.QWidget):
+    def __init__(self):
+        super().__init__()
 
-    """
+        self.timestamps = {} 
+        self._current_onset = None
 
-    def __init__(self, *args):
-        super().__init__(*args)
-        self.sort(key=lambda x: x[0])
-        self._check()
+        # UI Elements
+        self.setWindowTitle('Video Behavior Tracker')
+        self.layout = QtWidgets.QVBoxLayout()
 
-    def _append_double(self, ts: Tuple[float, float]):
-        if ts[0] > ts[1]:
-            ts = (ts[1], ts[0])
-        super().append((float(ts[0]), float(ts[1])))
-        self.sort(key=lambda x: x[0])
+        # Table to display timestamps
+        self.table = customTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(['Onset', 'Offset', 'Sure', 'Notes'])
+        self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+        # not editable
+        self.table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        
+        self.layout.addWidget(self.table)
 
-        try:
-            self._check()
-        except ValueError as e:
-            try:
-                super().remove(tuple(ts))
-            except:
-                print("FAILED:\t", self, tuple(ts))
+        # Add Buttons
+        self.onset_button = QtWidgets.QPushButton('Add Onset')
+        self.onset_button.clicked.connect(self.add_onset)
+        self.layout.addWidget(self.onset_button)
 
-            
+        # custom context menu for table
+        self.table.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._table_context_menu)
 
-    def _extend(self, ts_list: List[Tuple[float, float]]):
-        for ts in ts_list:
-            self._append_double(ts)
-        self.sort(key=lambda x: x[0])
+        # when a row is selcted set the current onset to the onset time of the row
+        self.table.itemSelectionChanged.connect(self._set_current_onset)
 
-    def _remove(self, __value: Any) -> None:
-        super().remove(__value)
-        self.sort(key=lambda x: x[0])
-
-    def _edit(self, ts, new_ts):
-        self._remove(ts)
-        try:
-            self._append_double(new_ts)
-        except Exception as e:
-            self._append_double(ts)
-            raise e
-
-    def _check(self):
-        for i in range(len(self) - 1):
-            if self[i][1] > self[i + 1][0]:
-                raise ValueError(f"Time stamp {self[i + 1]} overlaps with {self[i]}")
-
-
-class BehaviorTimeStamps(TupleTimestamps):
-    """
-    Implements a list like class for (onset,offset) time stamps with an interface for un/redoing time stamps. See `TupleTimestamps` for more information.
-    """
-
-    def __init__(self, *args):
-        super().__init__(*args)
-        self.action_stack = []
-        self.undone_action_stack = []
-        self._buffer = []
+        # if we don't click on a row, unselect the current selection and set the current onset to None
+        self.table.itemClicked.connect(self._row_selector)
+        self.setLayout(self.layout)
 
     @property
-    def buffer(self):
-        return self._buffer
+    def current_onset(self):
+        return self._current_onset
 
-    # setter for buffer
-    @buffer.setter
-    def buffer(self, value):
-        self._buffer = value
-
-    def append_single(self, ts):
-        if len(self.buffer) == 1:
-            # remove the old ts
-            _ = self.buffer[0]
-            super()._remove((self.buffer[0][0], self.buffer[0][0]))
-            self._append_double([_[0], ts[0]])
-            self.buffer = []
-        else:
-            self.buffer.append(ts)
-            super()._append_double([ts[0],ts[0]])
-        
-        self.action_stack.append(("append", ts))
-        self.undone_action_stack = []
-
-    def append_double(self, ts):
-        super()._append_double(ts)
-        self.action_stack.append(("append", ts))
-
-    def extend(self, ts_list):
-        super()._extend(ts_list)
-        self.action_stack.append(("extend", ts_list))
-        self.undone_action_stack = []
-
-    def remove(self, ts):
-        super().remove(ts)
-        self.action_stack.append(("remove", ts))
-        self.undone_action_stack = []
-
-    def edit(self, ts, new_ts):
-        if ts == new_ts:
+    @current_onset.setter
+    def current_onset(self, value):
+        # if we're setting the current onset to None, we're done other wise highlight the row
+        if value is None:
+            self._current_onset = None
             return
-        super()._edit(ts, new_ts)
-        self.action_stack.append(("edit", (ts, new_ts)))
-        self.undone_action_stack = []
-
-    def undo(self):
-        if self.action_stack:
-            action = self.action_stack.pop()
-            if action[0] == "append":
-                self.undone_action_stack.append(("append", action[1]))
-                super()._remove(action[1])
-            elif action[0] == "extend":
-                self.undone_action_stack.append(("extend", action[1]))
-                for ts in action[1]:
-                    super()._remove(ts)
-            elif action[0] == "remove":
-                self.undone_action_stack.append(("remove", action[1]))
-                super()._append_double(action[1])
-            elif action[0] == "edit":
-                self.undone_action_stack.append(("edit", (action[1][1], action[1][0])))
-                super()._edit(action[1][1], action[1][0])
-
-    def redo(self):
-        if self.undone_action_stack:
-            action = self.undone_action_stack.pop()
-            if action[0] == "append":
-                self.action_stack.append(("append", action[1]))
-                super()._append_double(action[1])
-            elif action[0] == "extend":
-                self.action_stack.append(("extend", action[1]))
-                super()._extend(action[1])
-            elif action[0] == "remove":
-                self.action_stack.append(("remove", action[1]))
-                super()._remove(action[1])
-            elif action[0] == "edit":
-                self.action_stack.append(("edit", (action[1][1], action[1][0])))
-                super()._edit(action[1][1], action[1][0])
-
-
-class SingleTimeStamps(list):
-    """
-    Implements a list of time stamps as single values. Sorts the list. Raises a ValueError if two time stamps overlap. Implements a stack like interface for un/redoing time stamps.
-    """
-
-    def __init__(self, *args):
-        super().__init__(*args)
-        self.sort()
-        self._check()
-
-    def _append(self, ts):
-        super().append(float(ts))
-        self.sort()
-        self._check()
-
-    def _extend(self, ts_list):
-        for ts in ts_list:
-            self._append(ts)
-        self.sort()
-
-    def _remove(self, __value: Any) -> None:
-        super().remove(__value)
-        self.sort()
-
-    def _edit(self, ts, new_ts):
-        self._remove(ts)
         try:
-            self._append(new_ts)
-        except Exception as e:
-            self._append(ts)
-            raise e
+            # get the row index of the onset
+            row = self.table.findItems(str(value), QtCore.Qt.MatchExactly)[0].row()
+            # select the row
+            self.table.selectRow(row)
+        except IndexError:
+            pass
+        # set the current onset
+        self._current_onset = value
 
-    def _check(self):
-        for i in range(len(self) - 1):
-            if self[i] > self[i + 1]:
-                raise ValueError(f"Time stamp {self[i + 1]} overlaps with {self[i]}")
+    def _row_selector(self, item):
+        # if we clicked on a row highlight it and set the current onset to the onset time of the row
+        if item.row() != -1:
+            self.table.selectRow(item.row())
+            self._set_current_onset()
+            
+        # otherwise unselect the current row and set the current onset to None
+        self.table.clearSelection()
+        self._current_onset = None
+        # remove focus from table
+        self.table.setFocus()
 
+    def _set_current_onset(self):
+        # get the row index of the onset
+        row = self.table.currentRow()
+        # get the onset time
+        onset_time = float(self.table.item(row, 0).text())
+        # set the current onset
+        self._current_onset = onset_time
 
-class TimeStampsModel(QtCore.QAbstractItemModel):
-    """
-    Implements a custom model to display the time stamps tuple list. Provides methods to add and remove time stamps.
-    """
+    def _check_overlap(self, new_onset=None, new_offset=None, current_onset=None):
+        """
+        Check if the provided onset and offset times overlap with any existing ranges.
 
-    def __init__(self, ts_type: Literal["Single", "On/Off"], parent=None):
-        super().__init__(parent)
-        self.time_stamps: Union[SingleTimeStamps, BehaviorTimeStamps] = (
-            SingleTimeStamps() if ts_type == "Single" else BehaviorTimeStamps()
-        )
+        Parameters
+        ----------
+        new_onset : float, optional
+            by default None
+        new_offset : float, optional
+            by default None
 
-    def rowCount(self, parent: QtCore.QModelIndex = QtCore.QModelIndex()) -> int:
-        if parent.isValid():
-            return 0
-        return len(self.time_stamps)
+        Returns
+        -------
+        Is there overlap? : bool
+            True if there is an overlap, False otherwise.
+        The overlap message : str
+        """
+        # If we are adding a new onset, check if it will overlap with any existing onset - offset ranges
+        if new_onset is not None and new_offset is None:
+            for onset, entry in self.timestamps.items():
+                # some entries may not have an offset yet
+                if entry['offset'] is None:
+                    continue
+                if new_onset >= onset and new_onset <= entry['offset']:
+                    return True, f"The provided onset time of {new_onset} overlaps with an existing range: {onset} - {entry['offset']}"
 
-    def columnCount(self, parent: QtCore.QModelIndex = QtCore.QModelIndex()) -> int:
-        if parent.isValid():
-            return 0
-        return 2
+        if current_onset is not None and new_offset is not None:
+            if new_offset <= current_onset:
+                return True, f"The provided offset time of {new_offset} is before the current onset time of {current_onset}"
+            for onset, entry in self.timestamps.items():
+                # some entries may not have an offset yet
+                if current_onset < onset and new_offset > onset:
+                    return True, f"The provided offset time of {new_offset} overlaps with an existing range: {onset} - {entry['offset']}"
+                elif entry['offset'] is None:
+                    continue
+                elif new_offset >= onset and new_offset <= entry['offset']:
+                    return True, f"The provided offset time of {new_offset} overlaps with an existing range: {onset} - {entry['offset']}"
+                
+        elif new_onset is None and new_offset is not None:
+                for onset, entry in self.timestamps.items():
+                    # some entries may not have an offset yet
+                    if entry['offset'] is None:
+                        continue
+                    if new_offset >= onset and new_offset <= entry['offset']:
+                        return True, f"The provided offset time of {new_offset} overlaps with an existing range: {onset} - {entry['offset']}"
+                    
 
-    def data(
-        self, index: QtCore.QModelIndex, role: int = QtCore.Qt.ItemDataRole.DisplayRole
-    ) -> Any:
-        if role == QtCore.Qt.ItemDataRole.DisplayRole:
-            return self.time_stamps[index.row()][index.column()]
-        return None
+        return False, None
 
-    def headerData(
-        self,
-        section: int,
-        orientation: QtCore.Qt.Orientation,
-        role: int = QtCore.Qt.ItemDataRole.DisplayRole,
-    ) -> Any:
-        if role == QtCore.Qt.ItemDataRole.DisplayRole:
-            if orientation == QtCore.Qt.Orientation.Horizontal:
-                return ["Start", "End"][section]
-            elif orientation == QtCore.Qt.Orientation.Vertical:
-                return section
-        return None
-
-    def index(
-        self, row: int, column: int, parent: QtCore.QModelIndex = QtCore.QModelIndex()
-    ) -> QtCore.QModelIndex:
-        if parent.isValid():
-            return QtCore.QModelIndex()
-        return self.createIndex(row, column)
-
-    def parent(self, child: QtCore.QModelIndex) -> QtCore.QModelIndex:
-        return QtCore.QModelIndex()
-
-    def flags(self, index: QtCore.QModelIndex) -> QtCore.Qt.ItemFlag:
-        return QtCore.Qt.ItemFlag.ItemIsEnabled | QtCore.Qt.ItemFlag.ItemIsSelectable
-
-    def add_time_stamp(self, ts: Union[Tuple[float, float], float]):
-        self.beginInsertRows(
-            QtCore.QModelIndex(), len(self.time_stamps), len(self.time_stamps)
-        )
-        self.time_stamps.append_single(ts)
-        self.endInsertRows()
-
-    def add_time_stamps(self, ts_list):
-        self.beginInsertRows(
-            QtCore.QModelIndex(),
-            len(self.time_stamps),
-            len(self.time_stamps) + len(ts_list),
-        )
-        self.time_stamps.extend(ts_list)
-        self.endInsertRows()
-
-    def remove_time_stamp(self, ts):
-        self.beginRemoveRows(
-            QtCore.QModelIndex(), self.time_stamps.index(ts), self.time_stamps.index(ts)
-        )
-        self.time_stamps.remove(ts)
-        self.endRemoveRows()
-
-    def get_time_stamps(self):
-        return self.time_stamps
-
-    def edit_time_stamp(self, ts, new_ts):
-        self.beginRemoveRows(
-            QtCore.QModelIndex(), self.time_stamps.index(ts), self.time_stamps.index(ts)
-        )
-        self.time_stamps.edit(ts, new_ts)
-        self.endRemoveRows()
-
-    def undo(self):
-        self.time_stamps.undo()
-
-    def redo(self):
-        self.time_stamps.redo()
-
-    def refresh(self):
-        for i in range(len(self.time_stamps)):
-            self.beginRemoveRows(QtCore.QModelIndex(), i, i)
-            self.endRemoveRows()
-        for i in range(len(self.time_stamps)):
-            self.beginInsertRows(QtCore.QModelIndex(), i, i)
-            self.endInsertRows()
-
-
-class TimeStampsTreeView(QtWidgets.QTreeView):
-    """
-    A Qt widget that displays time stamps as a tree view. Implements a custom model to display the time stamps tuple list. Provides methods to add, edit, and remove time stamps.
-
-    Parameters
-    ----------
-    ts_type : Literal["Single", "On/Off"]
-        The type of time stamps to display. "Single" displays time stamps as single values, "On/Off" displays time stamps as tuples of (onset, offset) values. See `SingleTimeStamps` and `BehaviorTimeStamps` for more information.
-    """
-
-    def __init__(self, ts_type: Literal["Single", "On/Off"], parent=None):
-        super().__init__(parent)
-        self.model: TimeStampsModel = TimeStampsModel(ts_type=ts_type)
-        self.setModel(self.model)
-        self.setAlternatingRowColors(True)
-        self.setSortingEnabled(True)
-
-    def add_time_stamp(self, ts):
-        try:
-            self.model.add_time_stamp(ts)
-        except Exception as e:
-            self.refresh()
-            raise e
-
-    def add_time_stamps(self, ts_list):
-        try:
-            self.model.add_time_stamps(ts_list)
-        except Exception as e:
-            self.refresh()
-            raise e
-
-    def remove_time_stamp(self, ts):
-        try:
-            self.model.remove_time_stamp(ts)
-        except Exception as e:
-            self.refresh()
-            raise e
-
-    def edit_time_stamp(self, ts, new_ts):
-        try:
-            self.model.edit_time_stamp(ts, new_ts)
-        except Exception as e:
-            self.refresh()
-            raise e
-
-    def get_time_stamps(self):
-        try:
-            return self.model.get_time_stamps()
-        except Exception as e:
-            self.refresh()
-            raise e
-
-    def undo(self):
-        try:
-            self.model.undo()
-        except Exception as e:
-            self.refresh()
-            raise e
-
-    def redo(self):
-        try:
-            self.model.redo()
-        except Exception as e:
-            self.refresh()
-            raise e
-
-    def refresh(self):
-        self.model.refresh()
-
-<<<<<<< Updated upstream:video_scoring/timestamps.py
-class KeyBoardShortcuts(QtWidgets.QDockWidget):
-    """Reads a json file with keyboard shortcuts and displays them in a tree view. Allows the user to edit the key sequences."""
-    def __init__(self, main_win: "MainWindow", parent=None):
-        super().__init__(parent)
-        self.main_win = main_win
-        self.tree_view = QtWidgets.QTreeView()
+    def _table_context_menu(self, position):
+        # create context menu
+        menu = QtWidgets.QMenu()
+        # if we're not on a row, show only add onset
+        if self.table.currentRow() == -1:
+            add_onset_action = menu.addAction('Add Onset')
+            add_onset_action.triggered.connect(self.add_onset)
+            menu.exec_(self.table.viewport().mapToGlobal(position))
+            return
         
-        self.setWidget(self.tree_view)
-        self.tree_view.setAlternatingRowColors(True)
-        self.tree_view.setSortingEnabled(True)
-        self.model = QtGui.QStandardItemModel()
-        self.tree_view.setModel(self.model)
-        self.load_shortcuts()
-        self.tree_view.expandAll()
-        self.tree_view.doubleClicked.connect(self.edit_key_sequence)
-        self.register_handlers()
+        add_offset_action = menu.addAction('Add Offset')
+        add_offset_action.triggered.connect(self._add_offset_from_context_menu)
+        add_sure_action = menu.addAction('Add Sure')
+        add_sure_action.triggered.connect(self._add_sure_from_context_menu)
+        add_notes_action = menu.addAction('Add Notes')
+        add_notes_action.triggered.connect(self._add_notes_from_context_menu)
+        menu.addSeparator()
+        delete_action = menu.addAction('Delete')
+        delete_action.triggered.connect(self._delete_from_context_menu)
 
-    def load_shortcuts(self):
-        self.model.clear()
-        with open(r"C:\Users\danie\AppData\Local\Video Scoring\settings.json", "r") as f:
-            shortcuts = json.load(f)["key_bindings"]
-        # two columns, one for the action, one for the key sequence
-        self.model.setColumnCount(2)
-        # headers: action, key sequence
-        self.model.setHorizontalHeaderLabels(["Action", "Key sequence"])
-        for action, key_sequence in shortcuts.items():
-            action_item = QtGui.QStandardItem(action)
-            key_sequence_item = QtGui.QStandardItem(QtGui.QKeySequence(key_sequence).toString())
-            self.model.appendRow((action_item, key_sequence_item))
-=======
+        # show context menu
+        menu.exec_(self.table.viewport().mapToGlobal(position))
+
+    def add_timestamp(self, timestamp):
+        # determine if we are adding an onset or offset
+        if self.current_onset is None:
+            # add onset
+            self.add_onset(onset_time=timestamp)
+        else:
+            # add offset
+            self.add_offset(onset_time=self.current_onset, offset_time=timestamp)
+
+    def add_onset(self, onset_time=None):
+        if onset_time is None:
+            # open dialog to get onset time
+            onset_time, ok = QtWidgets.QInputDialog.getDouble(self, 'Onset Time', 'Enter onset time (seconds):')
+            if not ok:
+                return
+        
+        overlap, er_msg = self._check_overlap(new_onset=onset_time)
+        if overlap:
+            # display error message
+            msg = QtWidgets.QMessageBox()
+            msg.setIcon(QtWidgets.QMessageBox.Critical)
+            msg.setText('Overlap Error')
+            msg.setInformativeText(er_msg)
+            msg.setWindowTitle('Error')
+            msg.exec_()
+            return
+
+        # add onset time to timestamps
+        self.timestamps[onset_time] = {'offset': None, 'sure': None, 'notes': None}
+        self.current_onset = onset_time
+        # update table
+        self.update_table()
+
+    def add_offset(self, onset_time, offset_time=None):
+        # open dialog to get offset time
+        if offset_time is None:
+            offset_time, ok = QtWidgets.QInputDialog.getDouble(self, 'Offset Time', 'Enter offset time (seconds):')
+            if not ok:
+                return
+        overlap, er_msg = self._check_overlap(current_onset=onset_time, new_offset=offset_time)
+        if overlap:
+            # display error message
+            msg = QtWidgets.QMessageBox()
+            msg.setIcon(QtWidgets.QMessageBox.Critical)
+            msg.setText('Overlap Error')
+            msg.setInformativeText(er_msg)
+            msg.setWindowTitle('Error')
+            msg.exec_()
+            return
+
+        self.timestamps[onset_time]['offset'] = offset_time
+        self.current_onset = None
+        # update table
+        self.update_table()
+
+    def _add_offset_from_context_menu(self):
+        # get selected row
+        selected_row = self.table.currentRow()
+
+        # get onset time from selected row
+        onset_time = float(self.table.item(selected_row, 0).text())
+
+        # add offset
+        self.add_offset(onset_time=onset_time)
+
+    def _add_sure_from_context_menu(self):
+        # get selected row
+        selected_row = self.table.currentRow()
+
+        # get onset time from selected row
+        onset_time = float(self.table.item(selected_row, 0).text())
+
+        # open dialog to get sure
+        sure, ok = QtWidgets.QInputDialog.getDouble(self, 'Sure', 'Enter sure value:')
+        if not ok:
+            return
+
+        # add sure to timestamps
+        self.timestamps[onset_time]['sure'] = sure
+
+        # update table
+        self.update_table()
+
+    def _add_notes_from_context_menu(self):
+        # get selected row
+        selected_row = self.table.currentRow()
+
+        # get onset time from selected row
+        onset_time = float(self.table.item(selected_row, 0).text())
+
+        # open dialog to get notes
+        notes, ok = QtWidgets.QInputDialog.getText(self, 'Notes', 'Enter notes:')
+        if not ok:
+            return
+
+        # add notes to timestamps
+        self.timestamps[onset_time]['notes'] = notes
+
+        # update table
+        self.update_table()
+
+    def _delete_from_context_menu(self):
+        # get selected row
+        selected_row = self.table.currentRow()
+
+        # get onset time from selected row
+        onset_time = float(self.table.item(selected_row, 0).text())
+
+        # delete entry
+        del self.timestamps[onset_time]
+
+        # update table
+        self.update_table()
+
+    def update_table(self):
+        # clear table
+        self.table.clearContents()
+
+        # sort timestamps by onset time
+        sorted_timestamps = sorted(self.timestamps.items(), key=lambda x: x[0])
+
+        # add rows to table
+        self.table.setRowCount(len(sorted_timestamps))
+        for i, (onset, entry) in enumerate(sorted_timestamps):
+            # onset time
+            item = QtWidgets.QTableWidgetItem(str(onset))
+            item.setFlags(QtCore.Qt.ItemIsEnabled)
+            self.table.setItem(i, 0, item)
+
+            # offset time
+            if entry['offset'] is not None:
+                item = QtWidgets.QTableWidgetItem(str(entry['offset']))
+                item.setFlags(QtCore.Qt.ItemIsEnabled)
+                self.table.setItem(i, 1, item)
+
+            # sure
+            if entry['sure'] is not None:
+                item = QtWidgets.QTableWidgetItem(str(entry['sure']))
+                item.setFlags(QtCore.Qt.ItemIsEnabled)
+                self.table.setItem(i, 2, item)
+
+            # notes
+            if entry['notes'] is not None:
+                item = QtWidgets.QTableWidgetItem(str(entry['notes']))
+                item.setFlags(QtCore.Qt.ItemIsEnabled)
+                self.table.setItem(i, 3, item)
+
+        # resize columns
+        self.table.resizeColumnsToContents()
 
 class TimeStampsDockwidget(QtWidgets.QDockWidget):
     def __init__(self, main_win: "MainWindow", parent=None):
@@ -420,197 +362,21 @@ class TimeStampsDockwidget(QtWidgets.QDockWidget):
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
         self.main_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignTop)
-        self.create_widgets()
 
-    def create_widgets(self):
-        self.create_time_stamps_tree_view()
-        self.create_add_time_stamp_button()
->>>>>>> Stashed changes:video_scoring/widgets/timestamps/timestamps.py
+        self.table_widget = TsWidget()
+        self.main_layout.addWidget(self.table_widget)
 
-    def create_time_stamps_tree_view(self):
-        self.time_stamps_tree_view = TimeStampsTreeView(ts_type="On/Off")
-        self.main_layout.addWidget(self.time_stamps_tree_view)
-
-    def create_add_time_stamp_button(self):
-        self.add_time_stamp_button = QtWidgets.QPushButton("Add Time Stamp")
-        self.main_layout.addWidget(self.add_time_stamp_button)
-
-<<<<<<< Updated upstream:video_scoring/timestamps.py
-    def register_handlers(self):
-        self.main_win.register_hanlder({"help": self.help})
-        self.main_win.register_hanlder({"exit": self.exit})
         
-    def help(self):
-        print("help!!!!")
-    
-    def exit(self):
-        print("exit!!!!")
-    
-class MainWindow(QtWidgets.QMainWindow):
-    """just a test for the time stamps tree view"""
 
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.tree_view = TimeStampsTreeView(ts_type="Single")
-        self.setCentralWidget(self.tree_view)
-        self.tree_view.add_time_stamps([(0, 1), (1, 2), (2, 3), (3, 4)])
-        # context menu to add and remove time stamps
-        self.tree_view.setContextMenuPolicy(
-            QtCore.Qt.ContextMenuPolicy.CustomContextMenu
-        )
-        self.availble_handlers: list[dict[str, Any]] = []
-        self.tree_view.customContextMenuRequested.connect(self.open_menu)
-        # double click to edit time stamp line
-        self.tree_view.doubleClicked.connect(self.edit_time_stamp)
-        self.key_bindings = json.loads(open(r"C:\Users\danie\AppData\Local\Video Scoring\settings.json", "r").read())["key_bindings"]
-        self.key_sequence_dock_widget = KeyBoardShortcuts(self)
-        self.key_sequence_dock_widget.load_shortcuts()
-        self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self.key_sequence_dock_widget)
-        
-        self.removeChildrenFocus()
+    def add_vid_time_stamp(self, frame_num):
+        # frame_num = self.main_win.get_frame_num()
+        # if frame_num is None:
+        #     return
 
-    
-    def register_hanlder(self, handler: dict[str, Any]):
-        # handler will be a dict with the action name and a reference to the method
-        self.availble_handlers.append(handler)
-                
-=======
-    def add_time_stamp(self, frame_num: int):
-        self.time_stamps_tree_view.add_time_stamp([frame_num])
+        self.table_widget.add_timestamp(frame_num)
 
-    def add_vid_time_stamp(self):
-        frame_num = self.main_win.get_frame_num()
-        if frame_num is None:
-            return
->>>>>>> Stashed changes:video_scoring/widgets/timestamps/timestamps.py
-
-        self.add_time_stamp(frame_num)
-
-<<<<<<< Updated upstream:video_scoring/timestamps.py
-    def open_menu(self, position):
-        menu = QtWidgets.QMenu()
-        add_action = menu.addAction("Add time stamp")
-        remove_action = menu.addAction("Remove time stamp")
-        keysequence_edit_action = menu.addAction("Edit key sequence")
-        action = menu.exec(self.tree_view.viewport().mapToGlobal(position))
-        if action == add_action:
-            # open a dialog to add a time stamp
-            dialog = QtWidgets.QDialog()
-            dialog.setWindowTitle("Add time stamp")
-            dialog.resize(200, 100)
-            layout = QtWidgets.QVBoxLayout()
-            start_time = QtWidgets.QLineEdit()
-            end_time = QtWidgets.QLineEdit()
-            layout.addWidget(start_time)
-            layout.addWidget(end_time)
-            dialog.setLayout(layout)
-            dialog.exec()
-            try:
-                self.tree_view.add_time_stamp(
-                    (float(start_time.text()), float(end_time.text()))
-                )
-            except ValueError as e:
-                print(e)
-        elif action == remove_action:
-            # remove the selected time stamp
-            self.tree_view.remove_time_stamp(
-                self.tree_view.get_time_stamps()[
-                    self.tree_view.selectedIndexes()[0].row()
-                ]
-            )
-        elif action == keysequence_edit_action:
-            # open the keybaord shortcuts dock widget
-            self.key_sequence_dock_widget = KeyBoardShortcuts()
-            self.key_sequence_dock_widget.load_shortcuts()
-            self.addDockWidget(QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self.key_sequence_dock_widget)
-            self.key_sequence_dock_widget.show()
-
-    def keyPressEvent(self, event):
-        sequence = ""
-        key = event.key()
-        modifier = event.modifiers()
-        if modifier == QtCore.Qt.KeyboardModifier.ControlModifier:
-            sequence += "Ctrl+"
-        if modifier == QtCore.Qt.KeyboardModifier.ShiftModifier:
-            sequence += "Shift+"
-        if modifier == QtCore.Qt.KeyboardModifier.AltModifier:
-            sequence += "Alt+"
-        if modifier == QtCore.Qt.KeyboardModifier.MetaModifier:
-            sequence += "Meta+"
-        sequence += QtGui.QKeySequence(key).toString()
-        print(sequence)
-        for action, key_sequence in self.key_bindings.items():
-            if str(key_sequence).capitalize() == sequence:
-                # find if we have a handler for this action
-                for handler in self.availble_handlers:
-                    if handler.get(str(action)) is not None:
-                        print(f"calling handler for {action}")
-                        handler[str(action)]()
-                        return
-        if (
-            event.key() == QtCore.Qt.Key.Key_Z
-            and event.modifiers() == QtCore.Qt.KeyboardModifier.ControlModifier
-        ):
-            self.undo()
-            self.tree_view.refresh()
-        # ctrl + shift + z to redo
-        elif (
-            event.key() == QtCore.Qt.Key.Key_Z
-            and event.modifiers()
-            == QtCore.Qt.KeyboardModifier.ControlModifier
-            | QtCore.Qt.KeyboardModifier.ShiftModifier
-        ):
-            self.redo()
-            self.tree_view.refresh()
-        elif event.key() == QtCore.Qt.Key.Key_Delete:
-            self.tree_view.remove_time_stamp(
-                self.tree_view.get_time_stamps()[
-                    self.tree_view.selectedIndexes()[0].row()
-                ]
-            )
-
-        super().keyPressEvent(event)
-
-    # edit the selected time stamp
-    def edit_time_stamp(self, item: QtCore.QModelIndex):
-        ts = self.tree_view.get_time_stamps()[item.row()]
-        dialog = QtWidgets.QDialog()
-        dialog.setWindowTitle("Edit time stamp")
-        dialog.resize(200, 100)
-        layout = QtWidgets.QVBoxLayout()
-        start_time = QtWidgets.QLineEdit()
-        start_time.setText(str(ts[0]))
-        end_time = QtWidgets.QLineEdit()
-        end_time.setText(str(ts[1]))
-        layout.addWidget(start_time)
-        layout.addWidget(end_time)
-        dialog.setLayout(layout)
-        dialog.exec()
-        try:
-            self.tree_view.edit_time_stamp(
-                ts, (float(start_time.text()), float(end_time.text()))
-            )
-        except ValueError as e:
-            print(e)
-
-    def undo(self):
-        self.tree_view.undo()
-        self.tree_view.expandAll()
-
-    def redo(self):
-        self.tree_view.redo()
-        self.tree_view.expandAll()
-
-
-if __name__ == "__main__":
-    app = QtWidgets.QApplication([])
-    w = MainWindow()
-    w.show()
-    app.exec()
-=======
     # def import_ts(self, ts):
     #     del self.time_stamps_tree_view
     #     self.time_stamps_tree_view = TimeStampsTreeView(ts_type="On/Off")
     #     self.main_layout.addWidget(self.time_stamps_tree_view)
     #     self.time_stamps_tree_view.add_time_stamps(ts)
->>>>>>> Stashed changes:video_scoring/widgets/timestamps/timestamps.py
