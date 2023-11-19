@@ -1,9 +1,11 @@
-from pydantic import BaseModel
-from typing import Any, Literal, List, Tuple, Union
 import json
+import logging
 import os
 import sys
-import logging
+from typing import Any, List, Literal, Tuple, Union
+from uuid import uuid4
+
+from pydantic import BaseModel
 
 log = logging.getLogger()
 
@@ -153,17 +155,232 @@ class KeyBindings(AbstSettings):
         return self.__dict__.items()
 
 
+class TDTData:
+    def __init__(self, block: dict):
+        """
+        A class to access the data of a TDT block
+
+        Parameters
+        ----------
+        block : dict
+            The TDT block. This is the output of `tdt.read_block()`
+
+        Attributes
+        ----------
+        tankpath : str
+            The path to the tank file
+        blockname : str
+            The name of the block
+        blockpath : str
+            The path to the block file
+        start_date : str
+            The start date of the block
+        utc_start_time : str
+            The start time of the block in UTC
+        stop_date : str
+            The stop date of the block
+        utc_stop_time : str
+            The stop time of the block in UTC
+        duration : float
+            The duration of the block in seconds
+        stream_channel : str
+            The channel of the stream
+        snip_channel : str
+            The channel of the snips
+        epocs : dict
+            The epocs
+        streams : dict
+            The streams
+        snips : dict
+            The snips
+        scalars : dict
+            The scalars
+        video_path : Union[None, str, List[str]]
+            The path to the video file(s)
+        """
+
+        # the block is a `TDStruct` type which is just a python dict with an overloaded __repr__
+        # the block contains a list of keys which are the names of the different data types
+        # each data type is itself another TDTStruct till we get to the data itself
+
+        # for now we will NOT convert the TDStruct to an object (we may change this later)
+        # we will simply provide methods to access the data in the TDStruct through this class
+        self.block = block
+
+    @property
+    def tankpath(self):
+        try:
+            return self.block.info.tankpath
+        except:
+            return None
+
+    @property
+    def blockname(self):
+        try:
+            return self.block.info.blockname
+        except:
+            return None
+
+    @property
+    def blockpath(self):
+        return os.path.join(self.tankpath, self.blockname)
+
+    @property
+    def start_date(self):
+        try:
+            return self.block.info.start_date
+        except:
+            return None
+
+    @property
+    def utc_start_time(self):
+        try:
+            return self.block.info.utc_start_time
+        except:
+            return None
+
+    @property
+    def stop_date(self):
+        try:
+            return self.block.info.stop_date
+        except:
+            return None
+
+    @property
+    def utc_stop_time(self):
+        try:
+            return self.block.info.utc_stop_time
+        except:
+            return None
+
+    @property
+    def duration(self):
+        try:
+            return self.block.info.duration
+        except:
+            return None
+
+    @property
+    def stream_channel(self):
+        try:
+            return self.block.info.stream_channel
+        except:
+            return None
+
+    @property
+    def snip_channel(self):
+        try:
+            return self.block.info.snip_channel
+        except:
+            return None
+
+    @property
+    def epocs(self):
+        """epocs are values stored with onset and offset timestamps that can be used to create time-based filters on your data. If Runtime Notes were enabled in Synapse, they will appear in data.epocs.Note. The notes themselves will be in data.epocs.Note.notes."""
+        return self.block.epocs
+
+    @property
+    def streams(self):
+        """streams are continuous single channel or multichannel recordings"""
+        return self.block.streams
+
+    @property
+    def snips(self):
+        """snips are short snippets of data collected on a trigger. For example, action potentials recorded around threshold crossings in the Spike Sorting gizmos, or fixed duration snippets recorded by the Strobe Store gizmo.
+
+        This structure includes the waveforms, channel numbers, sort codes, trigger timestamps, and sampling rate.
+        """
+        return self.block.snips
+
+    @property
+    def scalars(self):
+        """scalars are similar to epocs but can be single or multi-channel values and only store an onset timestamp when triggered"""
+        return self.block.scalars
+
+    @property
+    def video_path(self):
+        """
+        We will assume that the video file is in the same folder as the tank file.
+
+        Returns
+        -------
+        str
+            The path to the video file
+
+        Raises
+        ------
+        ValueError
+            If there is no video file
+        ValueError
+            If there are multiple video files
+        """
+        video_files = [
+            f
+            for f in os.listdir(self.blockpath)
+            if f.endswith(".mp4") or f.endswith(".avi") or f.endswith(".mov")
+        ]
+        if len(video_files) == 0:
+            raise ValueError("There is no video file")
+        elif len(video_files) > 1:
+            raise ValueError("There are multiple video files")
+        else:
+            return os.path.join(self.blockpath, video_files[0])
+
+    def create_frame_ts(
+        self, epoch_type: Union[Literal["onset"], Literal["offset"]] = "onset"
+    ) -> dict:
+        """
+        Creates a dictionary of the timestamps for each video frame. The keys are the frame numbers and the values are the timestamps. The timestamps are either the onset or offset timestamps of the epoc specified by `epoch_type`.
+
+        Returns
+        -------
+        Union[None, dict  ]
+            A dictionary of the timestamps for each video frame
+
+        Raises
+        ------
+        ValueError
+            If there is no video file
+        """
+        frame_ts = {}
+        if self.video_path is None:
+            raise ValueError("There is no video file")
+        else:
+            if epoch_type == "onset":
+                for i in range(len(self.epocs.Cam1.onset)):
+                    t = self.epocs.Cam1.onset[i]
+                    frame_ts[i] = t
+            elif epoch_type == "offset":
+                for i in range(len(self.epocs.Cam1.offset)):
+                    t = self.epocs.Cam1.offset[i]
+                    frame_ts[i] = t
+            else:
+                raise ValueError('epoch_type must be either "onset" or "offset"')
+
+        return frame_ts
+
+
+class ScoringData:
+    """Represents the data associated with a scoring session"""
+
+    uid: str = ""
+    video_file_location: str = ""
+    video_file_name: str = ""
+    timestamp_file_location: str = ""
+    tdt_data: str = ""
+
+
 class ProjectSettings(AbstSettings):
     project_name: str = ""
     settings_file_location: str = user_data_dir("settings.json")
     theme: Literal["dark", "light"] = "dark"
+    joke_type: Literal["programming", "dad"] = "programming"
+    scoring: Scoring = Scoring()
     video_file_location: str = ""
     video_file_name: str = ""
     timestamp_file_location: str = ""
-    scoring: Scoring = Scoring()
     playback: Playback = Playback()
     key_bindings: KeyBindings = KeyBindings()
-    timestamps: Union[List[Tuple[float, float]], List[float]] = []
     window_size: Tuple[int, int] = (1280, 720)
     window_position: Tuple[int, int] = (0, 0)
 
@@ -173,12 +390,12 @@ class ProjectSettings(AbstSettings):
             self.project_name = project_settings["project_name"]
             self.settings_file_location = project_settings["settings_file_location"]
             self.theme = project_settings["theme"]
+            self.joke_type = project_settings["joke_type"]
             self.video_file_location = project_settings["video_file_location"]
             self.video_file_name = project_settings["video_file_name"]
             self.scoring = Scoring(**project_settings["scoring"])
             self.playback = Playback(**project_settings["playback"])
             self.key_bindings = KeyBindings(**project_settings["key_bindings"])
-            self.timestamps = project_settings["timestamps"]
             self.window_size = project_settings["window_size"]
             self.window_position = project_settings["window_position"]
 
@@ -197,11 +414,12 @@ class ProjectSettings(AbstSettings):
     def help_text(self):
         return {
             "project_name": "Name of the project",
-            "theme": "Theme of the application",
             "settings_file_location": "Location of the settings file",
             "video_file_location": "Location of the video file",
             "video_file_name": "Name of the video file",
             "timestamp_file_location": "Location of the timestamp file",
+            "theme": "Theme of the application",
+            "joke_type": "I hope this is self explanatory",
             "window_size": "Size of the main window",
             "window_position": "Position of the main window",
         }

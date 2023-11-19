@@ -1,0 +1,5 @@
+Command for bundeling the application
+
+Must be run with in the virtual environment from the root of the project (where the main.py file is located outside of the video_scoring folder)
+
+python -m PyInstaller --noconfirm --onefile --log-level=WARN --windowed --name "Video Scoring" --add-data="video_scoring/Images/*;video_scoring/Images/" --hidden-import qtpy --icon="video_scoring\Images\icon_bg.ico" main.py

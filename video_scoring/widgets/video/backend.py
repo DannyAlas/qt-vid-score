@@ -1,25 +1,82 @@
 # this the a backend for the video widget, it will provide the functionality for getting video frames.
 # we will use the opencv library to get the frames from the video
-from typing import Union, TYPE_CHECKING
-from PyQt6 import QtGui
+from typing import TYPE_CHECKING, Union
+
 import cv2
-from PyQt6.QtCore import QMutex, QObject, Qt, QTimer, pyqtSignal, pyqtSlot, QThread
-from PyQt6.QtWidgets import (
-    QApplication,
-    QLabel,
-    QMainWindow,
-    QMenuBar,
-    QSizePolicy,
-    QSlider,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
-from PyQt6.QtGui import QAction, QIcon, QImage, QPixmap
 import numpy as np
+from qtpy import QtGui
+from qtpy.QtCore import QMutex, QObject, Qt, QThread, QTimer, Signal, Slot
+from qtpy.QtGui import QAction, QIcon, QImage, QPixmap
+from qtpy.QtWidgets import (QApplication, QLabel, QMainWindow, QMenuBar,
+                            QPushButton, QSizePolicy, QSlider, QVBoxLayout,
+                            QWidget)
 
 if TYPE_CHECKING:
     import numpy as np
+
+
+class VideoFile:
+    def __init__(self, file_path: str):
+        """
+        A class to access the data of a video file
+
+        Parameters
+        ----------
+        file_path : str
+            The path to the video file
+
+        Attributes
+        ----------
+        file_path : str
+            The path to the video file
+        cap : cv2.VideoCapture
+            The video capture object
+        fps : float
+            The frames per second of the video
+        frame_count : int
+            The number of frames in the video
+        duration : float
+            The duration of the video in seconds
+        """
+
+        self.file_path = file_path
+        self.cap = cv2.VideoCapture(self.file_path)
+        self.fps = self.cap.get(cv2.CAP_PROP_FPS)
+        self.frame_count = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.duration = self.frame_count / self.fps
+        self.frame_ts = {}
+        self.init_frame_ts()
+
+    def init_frame_ts(self):
+        """
+        Initialize the frame timestamps
+        """
+        for i in range(self.frame_count):
+            self.frame_ts[i] = i * (1000 / self.fps)
+
+    def __del__(self):
+        self.cap.release()
+
+    def get_frame(self, frame_num: int) -> np.ndarray:
+        """
+        Get a frame from the video
+
+        Parameters
+        ----------
+        frame_num : int
+            The frame number to get
+
+        Returns
+        -------
+        np.ndarray
+            The frame
+        """
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
+        ret, frame = self.cap.read()
+        if ret:
+            return frame
+        else:
+            return None
 
 
 class VideoCapture(QMutex):
@@ -27,7 +84,7 @@ class VideoCapture(QMutex):
 
     def __init__(self, file):
         super(VideoCapture, self).__init__()
-        self.file = file
+        self.video = VideoFile(file)
         self.frame_num = 0
         self.len = 1
         self.imw = 0
@@ -44,7 +101,7 @@ class VideoCapture(QMutex):
 
     def connectVC(self):
         try:
-            self.vc = cv2.VideoCapture(self.file)
+            self.vc = self.video.cap
             self.vc.set(cv2.CAP_PROP_BUFFERSIZE, 5000)
             self.updateFPS(self.getFrameRate())
             self.vc.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"mp4v"))
@@ -63,7 +120,7 @@ class VideoCapture(QMutex):
         """Determine the native device frame rate"""
         if self.vc is None:
             self.updateStatus(
-                f"Cannot get frame rate from {self.file}: device not connected",
+                f"Cannot get frame rate from {self.video.file_path}: device not connected",
                 True,
             )
             return 0
@@ -72,11 +129,12 @@ class VideoCapture(QMutex):
             return int(fps)
         else:
             self.updateStatus(
-                f"Invalid auto frame rate returned from {self.file}: {fps}", True
+                f"Invalid auto frame rate returned from {self.video.file_path}: {fps}\n\tAssuming 30fps",
+                True,
             )
-            return 0
+            return 30
 
-    @pyqtSlot()
+    @Slot()
     def get_frame(self, frame_num: int = None):
         """Get a frame from the webcam using cv2.VideoCapture.read()"""
 
@@ -105,10 +163,10 @@ class VideoCapture(QMutex):
 
 
 class VideoPlayerSignals(QObject):
-    status = pyqtSignal(str, bool)
-    finished = pyqtSignal()
-    error = pyqtSignal(str, bool)
-    frame = pyqtSignal(np.ndarray, int)
+    status = Signal(str, bool)
+    finished = Signal()
+    error = Signal(str, bool)
+    frame = Signal(np.ndarray, int)
 
 
 class VideoPlayer(QObject):
@@ -168,7 +226,6 @@ class VideoPlayer(QObject):
             return
         if fps < 1:
             fps = 1
-        print(fps)
         if self.play_timer is not None:
             self.play_timer.stop()
             self.play_timer.deleteLater()
@@ -196,7 +253,7 @@ class VideoDisplay(QLabel):
 
 
 class VideoWidgetSignals(QObject):
-    frame = pyqtSignal(int)
+    frame = Signal(int)
 
 
 # a window with a VideoDisplay label for displaying the video
@@ -237,7 +294,7 @@ class VideoWidget(QWidget):
         else:
             self.updateStatus(f"Frame is empty", True)
 
-    @pyqtSlot(np.ndarray, int)
+    @Slot(np.ndarray, int)
     def receivePrevFrame(self, frame: np.ndarray, frame_num):
         """receive a frame from the vidReader thread. pad indicates whether the frame is a filler frame"""
         self.lastFrame = [frame]

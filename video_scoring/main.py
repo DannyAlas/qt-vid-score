@@ -1,31 +1,25 @@
 __version__ = "0.0.1"
 
+import inspect
+import json
 import logging
-import re
-import sys
 import os
-from typing import List, Literal, Optional, Any, Dict, Union, Tuple
-from qtpy import QtCore, QtGui, QtWidgets
-from qtpy.QtWidgets import (
-    QApplication,
-    QMainWindow,
-    QVBoxLayout,
-    QWidget,
-    QPushButton,
-    QSlider,
-    QWidget,
-)
-from qtpy.QtMultimedia import QMediaPlayer, QMediaMetaData, QAudioOutput
-from qtpy.QtMultimediaWidgets import QVideoWidget
-from qtpy.QtCore import QUrl, Qt
-from qtpy import QtGui, QtCore
-from video_scoring.settings import ProjectSettings
+import sys
+import traceback as tb
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+
+import qdarktheme
+import requests
+from qtpy import QtCore, QtGui, QtNetwork, QtWidgets
+from qtpy.QtCore import QThread, QUrl, Signal
+from qtpy.QtWidgets import QMainWindow
+
+from video_scoring.settings import ProjectSettings, TDTData
+from video_scoring.widgets.loaders import TDTLoader
+from video_scoring.widgets.progress import ProgressBar, ProgressSignals
 from video_scoring.widgets.settings import SettingsDockWidget
 from video_scoring.widgets.timestamps import TimeStampsDockwidget
-import json
-import traceback as tb
-import qdarktheme
-import inspect
+from video_scoring.widgets.video.frontend import VideoPlayerDockWidget
 
 log = logging.getLogger()
 
@@ -39,12 +33,14 @@ sys.excepthook = logging_exept_hook
 
 
 class MainWindow(QMainWindow):
+    loaded = Signal()
     def __init__(self, logging_level=logging.INFO):
         super().__init__()
         self.setWindowTitle("Video Scoring Thing")
         self.qt_settings = QtCore.QSettings("Root Lab", "Video Scoring")
         self.project_settings = ProjectSettings()
         self.icons_dir = os.path.join(os.path.dirname(__file__), "Images")
+        self.set_icons()
         self.logging_level = logging_level
         self.create_main_widget()
         self.create_status_bar()
@@ -52,15 +48,33 @@ class MainWindow(QMainWindow):
         self.create_menu()
         self.init_doc_widgets()
         self.init_key_shortcuts()
+        self.loaded.emit()
 
     def _get_icon(self, icon_name):
         # are we in dark mode?
         if self.project_settings.theme == "dark":
             icon_path = os.path.join(self.icons_dir, "dark", icon_name)
         elif self.project_settings.theme == "light":
-            icon_path = os.path.join(self.icons_dir, "light", icon_name)
+            icon_path = os.path.join(self.icons_dir, icon_name)
         else:
             raise Exception(f"Theme {self.project_settings.theme} not recognized")
+        return QtGui.QIcon(icon_path)
+
+    def set_icons(self):
+        self.setWindowIcon(QtGui.QIcon(os.path.join(self.icons_dir, "icon.png")))
+        # set the tray icon
+        if QtWidgets.QSystemTrayIcon.isSystemTrayAvailable():
+            self.set_tray_icon()
+
+    def set_tray_icon(self):
+        self.tray_icon = QtWidgets.QSystemTrayIcon(self)
+        self.tray_icon_menu = QtWidgets.QMenu(self)
+        self.tray_icon_menu.addAction("Show", self.show)
+        self.tray_icon_menu.addAction("Exit", self.close)
+        self.tray_icon.setContextMenu(self.tray_icon_menu)
+        self.tray_icon.setIcon(self._get_icon("icon.ico"))
+        self.tray_icon.setToolTip("Video Scoring Thing")
+        self.tray_icon.show()
 
     def update_status(self, message, log_level=logging.INFO, do_log=True):
         if self.status_bar is not None:
@@ -75,6 +89,15 @@ class MainWindow(QMainWindow):
             log.error(message)
         elif log_level == logging.CRITICAL:
             log.critical(message)
+
+    def start_pbar(
+        self,
+        signals: ProgressSignals,
+        title: str = "Progress Bar",
+        completed_msg: str = "Completed",
+    ):
+        self.pbar = ProgressBar(signals, title, completed_msg, self)
+        self.pbar.start_progress()
 
     def create_menu(self):
         self.menu = self.menuBar()
@@ -152,7 +175,49 @@ class MainWindow(QMainWindow):
         pass
 
     def import_tdt_tank(self):
-        pass
+        # file dialog to select a folder
+        file_dialog = QtWidgets.QFileDialog()
+        file_dialog.setFileMode(QtWidgets.QFileDialog.FileMode.Directory)
+        file_dialog.setDirectory(self.project_settings.settings_file_location)
+        file_dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptMode.AcceptOpen)
+        if file_dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+            try:
+                self.tdt_loader_thread = QThread()
+                self.tdt_loader = TDTLoader(file_dialog.selectedFiles()[0])
+                self.tdt_loader.moveToThread(self.tdt_loader_thread)
+                self.tdt_loader_thread.started.connect(self.tdt_loader.run)
+                self.tdt_loader.signals.complete.connect(self.tdt_loader_thread.quit)
+                self.tdt_loader.signals.complete.connect(
+                    lambda: self.load_block(self.tdt_loader)
+                )
+                self.tdt_loader_thread.start()
+                self.start_pbar(
+                    self.tdt_loader.signals,
+                    f"Importing TDT Tank {file_dialog.selectedFiles()[0]}",
+                    "Imported TDT Tank",
+                )
+            except:
+                self.update_status(
+                    f"Failed to import TDT Tank {file_dialog.selectedFiles()[0]}"
+                )
+
+    def load_block(self, loader: TDTLoader):
+        """We assume that a tdt_loader object has loaded its block property"""
+        try:
+            self.save_settings()
+            self.tdt_data = TDTData(loader.block)
+            # open project
+            file = self.tdt_data.video_path
+            self.project_settings.video_file_location = file
+            self.update_status(
+                f"Imported video at {self.project_settings.video_file_location}"
+            )
+            self.save_settings()
+            self.video_player.start(str(file))
+        except:
+            self.update_status(
+                f"Failed to import video at {self.project_settings.video_file_location}"
+            )
 
     def export_timestamps(self):
         pass
@@ -166,7 +231,6 @@ class MainWindow(QMainWindow):
     def init_doc_widgets(self):
         self.open_settings_widget()
         self.settings_dock_widget.hide()
-        from video_scoring.widgets.video.frontend import VideoPlayerDockWidget
 
         self.video_player = VideoPlayerDockWidget(self, self)
         # add as central widget
@@ -175,11 +239,13 @@ class MainWindow(QMainWindow):
         if os.path.exists(self.project_settings.video_file_location):
             self.video_player.start(self.project_settings.video_file_location)
 
-        self.timestamps_dock_widget = TimeStampsDockwidget(self, self)
+        from video_scoring.widgets.timeline import TimelineDockWidget
+
+        self.timeline_dock_widget = TimelineDockWidget(self, self)
         self.addDockWidget(
-            QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self.timestamps_dock_widget
+            QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self.timeline_dock_widget
         )
-        self.dock_widgets_menu.addAction(self.timestamps_dock_widget.toggleViewAction())
+        self.dock_widgets_menu.addAction(self.timeline_dock_widget.toggleViewAction())
 
     def open_settings_widget(self):
         if not hasattr(self, "settings_dock_widget"):
@@ -219,6 +285,7 @@ class MainWindow(QMainWindow):
 
         if action not in self.shortcut_handlers.keys():
             self.update_status(f"Action {action} not found in shortcut handlers")
+            #print(f"Action {action} not found in shortcut handlers")
             return
         # if the action is already registered, update the key sequence
         if action in [
@@ -234,7 +301,7 @@ class MainWindow(QMainWindow):
 
     def change_theme(self, theme: Literal["dark", "light"]):
         self.project_settings.theme = theme
-        print(f"Changing theme to {theme}")
+
         qdarktheme.setup_theme(theme)
         # get the current app
         app = QtWidgets.QApplication.instance()
@@ -264,8 +331,11 @@ class MainWindow(QMainWindow):
                 self.update_status(
                     f"Loaded the latest project settings for {self.project_settings.video_file_name}"
                 )
-            except:
-                self.update_status("Failed to load the latest project settings")
+            except Exception as e:
+                self.update_status(
+                    "Failed to load the latest project settings",
+                    log_level=logging.ERROR,
+                )
         self.update_log_file()
         self.init_logging()
         self.load_settings()
@@ -385,13 +455,114 @@ class MainWindow(QMainWindow):
         help_url = QUrl("https://danielalas.com")
         QtGui.QDesktopServices.openUrl(help_url)
 
+    class JokeSignals(QtCore.QObject):
+        complete = Signal(dict)
+        finished = Signal()
+
+    class JokeThread(QtCore.QObject):
+        def __init__(self, type: Literal["programming", "general"] = "programming"):
+            super().__init__()
+            self.type = type
+            self.signals = MainWindow.JokeSignals()
+
+        def get_joke(self, type: Literal["programming", "dad"] = "programming"):
+            if type == "programming":
+                url = r"https://backend-omega-seven.vercel.app/api/getjoke"
+                response = requests.get(url)
+                if response.status_code == 200:
+                    res = json.loads(response.content)[0]
+                    return res
+                else:
+                    return {
+                        "question": "What's the best thing about a Boolean?",
+                        "punchline": "Even if you're wrong, you're only off by a bit.",
+                    }
+            elif type == "dad":
+                url = r"https://icanhazdadjoke.com/"
+                response = requests.get(url, headers={"Accept": "text/plain"})
+                if response.status_code == 200:
+                    return {
+                        "question": "",
+                        "punchline": response.content.decode("utf-8"),
+                    }
+                else:
+                    return {
+                        "question": "What's the best thing about a Boolean?",
+                        "punchline": "Even if you're wrong, you're only off by a bit.",
+                    }
+
+        def run(self):
+            joke = self.get_joke(self.type)
+            self.signals.complete.emit(joke)
+            self.signals.finished.emit()
+
     def about(self):
         about_dialog = QtWidgets.QMessageBox()
         about_dialog.setWindowTitle("About")
-        about_dialog.setText("Video Scoring Thing")
-        about_dialog.setInformativeText("Version: " + __version__)
+        # set custom icon scaled
+        about_dialog.setIconPixmap(
+            QtGui.QPixmap(os.path.join(self.icons_dir, "icon_bg.png")).scaled(64, 64)
+        )
+        about_dialog.setWindowIcon(
+            QtGui.QIcon(os.path.join(self.icons_dir, "icon.png"))
+        )
+        joke_thread = QThread()
+        joke = MainWindow.JokeThread(self.project_settings.joke_type)
+        joke.moveToThread(joke_thread)
+        about_dialog.setText(
+            f"""
+        <h1>Video Scoring Thing</h1>
+        <div style="color: grey">
+        <p>Version: {__version__}</p>
+        <p>Author: Daniel Alas</p>
+        <p>License: MIT</p>
+        </div>
+        <br>
+        <h2>{self.project_settings.joke_type.capitalize()} Joke</h2>
+        <p style="color: grey">Loading...</p>
+        <br>
+
+        <div style="color: grey">
+        <p><a href="{['https://icanhazdadjoke.com/' if self.project_settings.joke_type == "dad" else "https://backend-omega-seven.vercel.app/api/getjoke"][0]}">source</a></p>
+        </div>
+
+        """
+        )
+        joke_thread.started.connect(joke.run)
+        joke_thread.finished.connect(joke_thread.quit)
+        joke.signals.finished.connect(joke_thread.quit)
+        joke.signals.complete.connect(
+            lambda joke: about_dialog.setText(
+                f"""
+        <h1>Video Scoring Thing</h1>
+        <div style="color: grey">
+        <p>Version: {__version__}</p>
+        <p>Author: Daniel Alas</p>
+        <p>License: MIT</p>
+        </div>
+        <br>
+        <h2>{self.project_settings.joke_type.capitalize()} Joke</h2>
+        <p>{joke['question']}</p>
+        <p>{joke['punchline']}</p>
+        <br>
+
+        <div style="color: grey">
+        <p><a href="{['https://icanhazdadjoke.com/' if self.project_settings.joke_type == "dad" else "https://backend-omega-seven.vercel.app/api/getjoke"][0]}">source</a></p>
+        </div>
+        
+        """
+            )
+        )
+
+        # add small grey text at bottom
+        joke_thread.start()
+
         about_dialog.setStandardButtons(QtWidgets.QMessageBox.StandardButton.Ok)
         about_dialog.exec()
+
+    def exit(self):
+        self.save_settings()
+        self.close()
 
     def closeEvent(self, event):
         self.save_settings()

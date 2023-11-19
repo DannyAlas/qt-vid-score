@@ -1,1 +1,1 @@
-from video_scoring.widgets.timeline.timeline import Timeline
+from .timeline import TimelineDockWidget

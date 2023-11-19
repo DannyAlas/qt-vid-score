@@ -1,16 +1,13 @@
 import re
-from qtpy import QtWidgets, QtCore, QtGui
 import typing
 from typing import TYPE_CHECKING, Union
 
-from video_scoring.settings import (
-    Scoring,
-    Playback,
-    KeyBindings,
-    ProjectSettings,
-    AbstSettings,
-)
 import qdarktheme
+from qtpy import QtCore, QtGui, QtWidgets
+
+from video_scoring.settings import (AbstSettings, KeyBindings, Playback,
+                                    ProjectSettings, Scoring)
+
 if TYPE_CHECKING:
     from main import MainWindow
 
@@ -67,7 +64,7 @@ class SettingsDockWidget(QtWidgets.QDockWidget):
             )
             widget.keySequenceChanged.connect(self.key_sequence_changed)
 
-############ Custom widgets for settings ############
+    ############ Custom widgets for settings ############
     def _settings_file_location(self):
         # this is a path to the settings file, I want a button next to a line edit which opens a file dialog
         # create a widget for the field
@@ -101,10 +98,11 @@ class SettingsDockWidget(QtWidgets.QDockWidget):
         # this is a combo box with the available themes, changing the theme will change the theme of the main window
         widget = QtWidgets.QComboBox()
         widget.addItems(["dark", "light", "auto"])
-        print(self.main_win.project_settings.theme)
         widget.setCurrentText(self.main_win.project_settings.theme)
         # change theme with main window method and update settings
-        widget.currentTextChanged.connect(lambda value: self.main_win.change_theme(value))
+        widget.currentTextChanged.connect(
+            lambda value: self.main_win.change_theme(value)
+        )
         widget.currentTextChanged.connect(
             lambda value: self.settings_changed(value, self.main_win.project_settings)
         )
@@ -118,14 +116,12 @@ class SettingsDockWidget(QtWidgets.QDockWidget):
         line_edit.setReadOnly(True)
         button = QtWidgets.QPushButton("Pick Color")
         button.clicked.connect(
-            lambda: self.color_picker(
-                line_edit, self.main_win.project_settings.scoring
-            )
+            lambda: self.color_picker(line_edit, self.main_win.project_settings.scoring)
         )
         widget.addWidget(line_edit)
         widget.addWidget(button)
         return widget
-    
+
     def color_picker(self, line_edit: QtWidgets.QLineEdit, settings: Scoring):
         # open a color picker dialog and update the line edit and settings
         color = QtWidgets.QColorDialog.getColor()
@@ -209,7 +205,7 @@ class SettingsDockWidget(QtWidgets.QDockWidget):
                 form_layout.addRow(label, widget)
                 widget.setObjectName(field_name)
                 label.setToolTip(help_text)
-    
+
     def guess_widget(self, field_name: str, f_type: type, settings: AbstSettings):
         """
         Given the name of a field and the type of the field, will return a widget that is appropriate for the field with no hooks
@@ -242,8 +238,13 @@ class SettingsDockWidget(QtWidgets.QDockWidget):
                 widget = QtWidgets.QLineEdit()
                 widget.setText(settings.__getattribute__(field_name))
                 widget.setReadOnly(True)
-                widget.mousePressEvent = lambda event: QtWidgets.QFileDialog.getOpenFileName(
-                    self, "Open File", "", "All Files (*);;Text Files (*.txt);;JSON Files (*.json)"
+                widget.mousePressEvent = (
+                    lambda event: QtWidgets.QFileDialog.getOpenFileName(
+                        self,
+                        "Open File",
+                        "",
+                        "All Files (*);;Text Files (*.txt);;JSON Files (*.json)",
+                    )
                 )
             else:
                 widget = QtWidgets.QLineEdit()
@@ -251,12 +252,12 @@ class SettingsDockWidget(QtWidgets.QDockWidget):
         elif f_type == list:
             widget = QtWidgets.QListWidget()
             widget.addItems(settings.__getattribute__(field_name))
-        
+
         elif hasattr(f_type, "__origin__") and f_type.__origin__ == typing.Literal:
             widget = QtWidgets.QComboBox()
             widget.addItems([str(x) for x in f_type.__args__])
             widget.setCurrentText(settings.__getattribute__(field_name))
-        
+
         elif hasattr(f_type, "__origin__") and f_type.__origin__ == typing.Union:
             for arg in f_type.__args__:
                 if arg == type(None):
@@ -278,9 +279,7 @@ class SettingsDockWidget(QtWidgets.QDockWidget):
                 elif arg == list:
                     widget = QtWidgets.QLineEdit()
                     widget.setText(str(settings.__getattribute__(field_name)))
-                elif (
-                    hasattr(arg, "__origin__") and arg.__origin__ == typing.Literal
-                ):
+                elif hasattr(arg, "__origin__") and arg.__origin__ == typing.Literal:
                     widget = QtWidgets.QComboBox()
                     widget.addItems([str(x) for x in arg.__args__])
                     widget.setCurrentText(settings.__getattribute__(field_name))
@@ -319,7 +318,9 @@ class SettingsDockWidget(QtWidgets.QDockWidget):
         )
         self.main_win.register_shortcut(widget.objectName(), value.toString())
 
-    def get_help_text(self, pyd_model: Union[Scoring, Playback, ProjectSettings], field_name: str):
+    def get_help_text(
+        self, pyd_model: Union[Scoring, Playback, ProjectSettings], field_name: str
+    ):
         help_text = str(pyd_model.help_text()[field_name])
         help_text = help_text.split(" ")
         help_text = [

@@ -1,19 +1,15 @@
-from typing import Union, TYPE_CHECKING
-from qtpy import QtGui, QtCore
-from PyQt6.QtCore import QObject, Qt, pyqtSignal, pyqtSlot, QThread
-from PyQt6.QtWidgets import (
-    QStyleOptionSlider,
-    QLabel,
-    QSizePolicy,
-    QSlider,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-    QDockWidget,
-)
-from PyQt6.QtGui import QImage, QPixmap
+from tkinter import E
+from typing import TYPE_CHECKING, Literal
+
 import numpy as np
+from qtpy import QtCore, QtGui
+from qtpy.QtCore import QObject, Qt, QThread, Signal, Slot
+from qtpy.QtGui import QImage, QPixmap
+from qtpy.QtWidgets import (QDockWidget, QLabel, QPushButton, QSizePolicy,
+                            QSlider, QStyleOptionSlider, QVBoxLayout, QWidget)
+
 from video_scoring.widgets.video.backend import VideoPlayer
+
 if TYPE_CHECKING:
     from video_scoring import MainWindow
 
@@ -38,7 +34,7 @@ class VideoDisplay(QLabel):
 
 
 class VideoWidgetSignals(QObject):
-    frame = pyqtSignal(int)
+    frame = Signal(int)
 
 
 # a window with a VideoDisplay label for displaying the video
@@ -57,6 +53,36 @@ class VideoWidget(QWidget):
         self.play_worker = None
         self.lastFrame = None
         self.framesSincePrev = 0
+
+    def showDefaultImage(self):
+        # instead of the video display, show a default image if the video is not playing
+        self.default_image = QPixmap(
+            r"C:\dev\projects\qt-vid-scoring\qt-vid-score\video_scoring\Images\icon_gray.png"
+        )
+        self.default_image = self.default_image.scaledToHeight(
+            200, QtCore.Qt.TransformationMode.SmoothTransformation
+        )
+        # make a widget to hold the image that will be centered in the window
+        self.default_image_widget = QWidget()
+        self.default_image_widget.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        self.default_image_widget.setLayout(QVBoxLayout())
+        self.default_image_widget.layout().addWidget(
+            QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
+        )
+        self.default_image_widget.layout().itemAt(0).widget().setPixmap(
+            self.default_image
+        )
+        self.layout.addWidget(self.default_image_widget)
+
+    def showVideoDisplay(self):
+        if self.default_image_widget in self.layout:
+            self.layout.removeWidget(self.default_image_widget)
+            self.default_image_widget.deleteLater()
+
+        if self.video_display not in self.layout:
+            self.layout.addWidget(self.video_display)
 
     def updatePrevWindow(self, frame: np.ndarray) -> None:
         """Update the display with the new pixmap"""
@@ -78,7 +104,7 @@ class VideoWidget(QWidget):
         else:
             self.updateStatus(f"Frame is empty", True)
 
-    @pyqtSlot(np.ndarray, int)
+    @Slot(np.ndarray, int)
     def receivePrevFrame(self, frame: np.ndarray, frame_num):
         """receive a frame from the vidReader thread. pad indicates whether the frame is a filler frame"""
         if frame.shape[0] == 0:
@@ -113,203 +139,92 @@ class VideoWidget(QWidget):
         self.play_thread.start()
         self.play_worker.seek(0)
 
-    def updateStatus(self, err, show):
-        print(err, show)
-
-
-class CustomSlider(QSlider):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._secondary_slider_pos = []
-        # self.indicator_positions = []
-
-    @property
-    def secondary_slider_pos(self):
-        return self._secondary_slider_pos
-
-    @property
-    def indicator(self):
-        try:
-            return self._indicator
-        except:
-            image = QtGui.QPixmap(
-                r"C:\dev\projects\qt-vid-scoring\qt-vid-score\video_scoring\Images\dark\tick.png"
-            )
-            if self.orientation() == QtCore.Qt.Orientation.Horizontal:
-                height = self.height() / 2
-                if image.height() > height:
-                    image = image.scaledToHeight(
-                        int(height), QtCore.Qt.TransformationMode.SmoothTransformation
-                    )
-            else:
-                width = self.width() / 2
-                if image.height() > width:
-                    image = image.scaledToHeight(
-                        int(width), QtCore.Qt.TransformationMode.SmoothTransformation
-                    )
-                rotated = QtGui.QPixmap(image.height(), image.width())
-                rotated.fill(QtCore.Qt.GlobalColor.transparent)
-                qp = QtGui.QPainter(rotated)
-                qp.rotate(-90)
-                qp.drawPixmap(-image.width(), 0, image)
-                qp.end()
-                image = rotated
-            self._indicator = image
-            return self._indicator
-
-    def add_secondary_slider_pos(self, other_pos):
-        self._secondary_slider_pos.append(other_pos)
-        self.update()
-
-    def set_secondary_slider_pos(self, other_pos):
-        self._secondary_slider_pos = other_pos
-        self.update()
-
-    def paintEvent(self, event):
-        super().paintEvent(event)
-        if not self._secondary_slider_pos:
+    def paintEvent(self, a0):
+        while self.video_file is None:
+            # calculate the size of the window, determine the center, and draw the default image
+            image = self.default_image
+            image_size = image.size()
+            window_size = self.size()
+            x = (window_size.width() - image_size.width()) / 2
+            y = (window_size.height() - image_size.height()) / 2
+            qp = QtGui.QPainter(self)
+            qp.drawPixmap(x, y, image)
+            qp.end()
+            super(VideoWidget, self).paintEvent(a0)
             return
-        style = self.style()
-        opt = QStyleOptionSlider()
-        self.initStyleOption(opt)
+        super(VideoWidget, self).paintEvent(a0)
 
-        # the available space for the handle
-        available = style.pixelMetric(style.PM_SliderSpaceAvailable, opt, self)
-        # the extent of the slider handle
-        sLen = style.pixelMetric(style.PM_SliderLength, opt, self) / 2
-
-        x = self.width() / 2
-        y = self.height() / 2
-        horizontal = self.orientation() == QtCore.Qt.Orientation.Horizontal
-        if horizontal:
-            delta = self.indicator.width() / 2
-        else:
-            delta = self.indicator.height() / 2
-
-        minimum = self.minimum()
-        maximum = self.maximum()
-        qp = QtGui.QPainter(self)
-        # just in case
-        qp.translate(opt.rect.x(), opt.rect.y())
-        for value in self._secondary_slider_pos:
-            # get the actual position based on the available space and add half
-            # the slider handle size for the correct position
-            pos = (
-                style.sliderPositionFromValue(
-                    minimum, maximum, value, available, opt.upsideDown
-                )
-                + sLen
-            )
-            # draw the image by removing half of its size in order to center it
-            if horizontal:
-                qp.drawPixmap(int(pos - delta), int(y), self.indicator)
-                # self.indicator_positions.append([int(pos - delta), int(y)])
-            else:
-                qp.drawPixmap(int(x), int(pos - delta), self.indicator)
-                # self.indicator_positions.append([int(x), int(pos - delta)])
-            
-        # self.indicator_positions = np.unique(self.indicator_positions, axis=0).tolist()
-        # # color as pastel red
-        # qp.setBrush(QtGui.QColor(255, 0, 0, 100))
-        # qp.setPen(QtCore.Qt.GlobalColor.transparent)
-        # if len(self.indicator_positions) % 2 != 0:
-        #     indicator_positions = self.indicator_positions[:-1]
-        # else:
-        #     indicator_positions = self.indicator_positions
-        # self.grouped_indicator_positions = [
-        #     indicator_positions[i : i + 2]
-        #     for i in range(0, len(indicator_positions), 2)
-        # ]
-
-        # for pos1, pos2 in self.grouped_indicator_positions:
-        #     if horizontal:
-        #         qp.drawRect(pos1[0] +1, pos1[1], pos2[0] - pos1[0] - 2, 5)
-        #     else:
-        #         qp.drawRect(pos1[0]+1, pos1[1], pos2[0] - pos1[0] - 2, 5)
-            
-        qp.end()
+    def updateStatus(self, err, show):
+        self.parent.main_win.update_status(err)
 
 
-    def resizeEvent(self, event: QtGui.QResizeEvent):
-        super().resizeEvent(event)
-        if (
-            self.orientation() == QtCore.Qt.Orientation.Horizontal
-            and event.size().height() != event.oldSize().height()
-            or self.orientation() == QtCore.Qt.Orientation.Vertical
-            and event.size().width() != event.oldSize().width()
-        ):
-            try:
-                del self._indicator
-            except AttributeError:
-                pass
-        
-
-# a timeline widget with a timeline slider a labl for displaying the current frame number, and a button for playing/pausing the video
-class TimelineWidget(QWidget):
+class PlayerControls(QWidget):
     def __init__(self, vpdw: "VideoPlayerDockWidget", parent=None):
-        super(TimelineWidget, self).__init__(parent)
+        super(PlayerControls, self).__init__(parent)
         self.vpdw = vpdw
         self.layout = QVBoxLayout()
         self.setLayout(self.layout)
-        self.layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.setSpacing(0)
-        self.slider = CustomSlider(Qt.Orientation.Horizontal)
-        self.slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self.slider.setTickInterval(1)
         self.frame_label = QLabel("0")
         self.frame_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.play_button = QPushButton("Play")
         self.play_button.setCheckable(True)
         self.play_button.clicked.connect(self.vpdw.toggle_play)
-        self.layout.addWidget(self.slider)
         self.layout.addWidget(self.frame_label)
         self.layout.addWidget(self.play_button)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(1)        
         self.frame_label.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-        )
-        self.slider.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
         self.play_button.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
-        self.slider.valueChanged.connect(self.frame_label.setNum)
-        self.slider.valueChanged.connect(self.update_value)
 
-    def update_value(self, value):
-        self.slider.setValue(value)
-
+    def set_label(self):
+        if self.vpdw.video_widget.play_worker is None:
+            return
+        if self.vpdw.main_win.project_settings.scoring.save_frame_or_time == "frame":
+            self.frame_label.setNum(self.vpdw.video_widget.play_worker.vc.frame_num)
+        else:
+            self.frame_label.setText(
+                str(
+                    self.vpdw.video_widget.play_worker.vc.video.frame_ts.get(
+                        self.vpdw.video_widget.play_worker.vc.frame_num, 0
+                    )
+                )
+            )
 
 class VideoPlayerDockWidget(QDockWidget):
     def __init__(self, main_win: "MainWindow", parent=None):
         super(VideoPlayerDockWidget, self).__init__(parent)
         self.setWindowTitle("Video Player")
-        self.video_widget = VideoWidget()
-        self.timeline_widget = TimelineWidget(self)
+        self.video_widget = VideoWidget(self)
+        self.player_controls = PlayerControls(self)
         self.main_win = main_win
-
+        self.started = False
         # set the layout
         self.layout = QVBoxLayout()
         self.layout.addWidget(self.video_widget)
-        self.layout.addWidget(self.timeline_widget)
+        self.layout.addWidget(self.player_controls)
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.setSpacing(0)
         self.widget = QWidget()
         self.widget.setLayout(self.layout)
         self.setWidget(self.widget)
-
-        self._init_connections()
+        self.main_win.loaded.connect(self._init_connections)
 
     def _init_connections(self):
         self.video_widget.signals.frame.connect(self.update_timeline)
-        self.timeline_widget.slider.valueChanged.connect(self.timelineChanged)
-
+        self.timeline = self.main_win.timeline_dock_widget
+        self.timeline.timeline_view.valueChanged.connect(self.timelineChanged)
+        if self.started:
+            self.timeline.set_length(self.video_widget.play_worker.vc.len)
+            self.toggle_play()
     def start(self, video_file):
         try:
             self.video_widget.startPlayer(video_file)
-            self.timeline_widget.slider.setRange(
-                0, self.video_widget.play_worker.vc.len
-            )
+            self.started = True
+            self.timeline.set_length(self.video_widget.play_worker.vc.len)
             self.toggle_play()
         except Exception as e:
             self.main_win.update_status(f"Error: {e}", True)
@@ -320,10 +235,12 @@ class VideoPlayerDockWidget(QDockWidget):
 
         if self.video_widget.play_worker.paused:
             self.video_widget.play_worker.play()
-            self.timeline_widget.play_button.setText("Pause")
+            self.timeline.timeline_view.playing = True
+            self.player_controls.play_button.setText("Pause")
         else:
             self.video_widget.play_worker.pause()
-            self.timeline_widget.play_button.setText("Play")
+            self.timeline.timeline_view.playing = False
+            self.player_controls.play_button.setText("Play")
 
     def seek(self, frame_num: int):
         if self.video_widget.play_worker is None:
@@ -373,43 +290,53 @@ class VideoPlayerDockWidget(QDockWidget):
         self.seek(self.video_widget.play_worker.vc.len - 1)
 
     def increase_playback_speed(self):
+        self.toggle_play()
         self.video_widget.play_worker.updateFPS(
             self.video_widget.play_worker.vc.fps
             + self.main_win.project_settings.playback.playback_speed_modulator
         )
+        self.toggle_play()
 
     def decrease_playback_speed(self):
+        self.toggle_play()
         self.video_widget.play_worker.updateFPS(
             self.video_widget.play_worker.vc.fps
             - self.main_win.project_settings.playback.playback_speed_modulator
         )
+        self.toggle_play()
 
     def timelineChanged(self, value):
-
-        if self.timeline_widget.slider.isSliderDown():
+        if self.timeline.timeline_view.isPlayheadDown():
             self.seek(value)
 
     def save_timestamp(self):
-        # get the current frame number
-        frame_num = self.video_widget.play_worker.vc.frame_num
-        self.main_win.timestamps_dock_widget.add_vid_time_stamp(frame_num)
-        _ts = self.main_win.timestamps_dock_widget.table_widget.timestamps
-        # _ts is a dict of onset:{offset:float, sure:bool} 
-        # convert to a list containing all the onsets and offsets
-        ts = []
-        for onset, offset_dict in _ts.items():
-            ts.append(onset)
-            # if offset is not None:
-            if offset_dict["offset"] is not None:
-                ts.append(offset_dict["offset"])
-            
-        
-        self.timeline_widget.slider.set_secondary_slider_pos(ts)
+        # # get the current frame number
+        # frame_num = self.video_widget.play_worker.vc.frame_num
+        # self.main_win.timeline.add_vid_time_stamp(frame_num)
+        # _ts = self.main_win.timeline.table_widget.timestamps
+        # # _ts is a dict of onset:{offset:float, sure:bool}
+        # # convert to a list containing all the onsets and offsets
+        # ts = []
+        # for onset, offset_dict in _ts.items():
+        #     ts.append(onset)
+        #     # if offset is not None:
+        #     if offset_dict["offset"] is not None:
+        #         ts.append(offset_dict["offset"])
+        pass
 
     def update_timeline(self, frame_num):
-        if not self.timeline_widget.slider.isSliderDown():
-            self.timeline_widget.slider.setValue(frame_num)
-            self.timeline_widget.slider.update()
+        if self.main_win.project_settings.scoring.save_frame_or_time == "frame":
+            self.player_controls.frame_label.setNum(frame_num)
+        else:
+            self.player_controls.frame_label.setText(
+                str(
+                    self.video_widget.play_worker.vc.video.frame_ts.get(
+                        frame_num, 0
+                    )
+                )
+            )
+        if not self.timeline.timeline_view.playhead.triangle.pressed:
+            self.timeline.timeline_view.setValue(frame_num)
 
     def get_frame_num(self):
         return self.video_widget.play_worker.vc.frame_num
