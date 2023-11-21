@@ -1,7 +1,5 @@
 
-import re
 from PyQt6 import QtCore, QtGui
-from numpy import cfloat
 from qtpy.QtWidgets import QGraphicsRectItem, QGraphicsItemGroup, QGraphicsItem, QGraphicsSceneDragDropEvent, QGraphicsSceneHoverEvent, QGraphicsSceneMouseEvent, QGraphicsView, QGraphicsScene, QGraphicsLineItem, QGraphicsPolygonItem, QMainWindow, QStyleOptionGraphicsItem, QWidget, QSizePolicy
 from qtpy import QtCore, QtGui, QtWidgets
 from qtpy.QtCore import Qt, QRectF, QPointF, Signal
@@ -411,7 +409,6 @@ class OnsetOffsetItem(QGraphicsRectItem):
         self.setBrush(QBrush(self.highlight_color))
 
     def unhighlight(self):
-        print("unhighlight")
         self.setBrush(QBrush(self.base_color))
 
     def errorHighlight(self):
@@ -421,8 +418,6 @@ class OnsetOffsetItem(QGraphicsRectItem):
         # will set the error highlight for a short time
         self.errorHighlight()
         QtCore.QTimer.singleShot(300, self.unhighlight)
-        
-        
 
     def mouseMoveEvent(self, event):
         if self.pressed:
@@ -459,10 +454,8 @@ class OnsetOffsetItem(QGraphicsRectItem):
                     self.setRect(old_x_local, self.rect().top(), old_width, self.rect().height())
                     self.n_onset = None
             elif self.right_edge_grabbed:
-                # Directly use the scene x-coordinate of the mouse for the right edge
                 scene_x = min(self.mapToScene(event.pos()).x(), self.view.sceneRect().right())
-                snapped_x = round(scene_x / self.view.frame_width) * self.view.frame_width
-                snapped_x_local = snapped_x - self.pos().x()
+                snapped_x_local = round(scene_x / self.view.frame_width) * self.view.frame_width - self.pos().x()
                 new_width = snapped_x_local - self.rect().left()
                 if new_width < 1:
                     return
@@ -527,7 +520,6 @@ class OnsetOffsetItem(QGraphicsRectItem):
             self.hover_right_edge = False
         return super().hoverMoveEvent(event)
 
-    # in our paint event, draw a line on the left and right edges of the rectangle if we're hovered over them
     def paint(self, painter: QtGui.QPainter, option: QStyleOptionGraphicsItem, widget: QWidget | None = None) -> None:
         # make a light gray pen with rounded edges
         if self.hovered:
@@ -546,6 +538,7 @@ class OnsetOffsetItem(QGraphicsRectItem):
             painter.setPen(pen)
             painter.drawLine(int(self.rect().width()), 2, int(self.rect().width()), int(self.rect().height())-2)
         super().paint(painter, option, widget)
+
         # This is for debugging
         # painter.setPen(QPen(Qt.GlobalColor.black, 3))
         # painter.setFont(QtGui.QFont("Arial", 10))
@@ -574,14 +567,16 @@ class BehaviorTrack(QtWidgets.QGraphicsRectItem):
         # a dict of behavior items where the key is the onset frame and the value is the item
         self.behavior_items: dict[int, OnsetOffsetItem] = {}
 
+        self.curr_behavior_item: Optional[OnsetOffsetItem] = None
+        
     def add_behavior(self, onset):
         # add a new behavior item
+        # if offset is none we're we will be changing the offset based on the playheads position
+        self.curr_behavior_item  = OnsetOffsetItem(onset, onset+1, self.parent, self)
+        self.behavior_items[onset] = self.curr_behavior_item
+        self.update_behavior(self.curr_behavior_item)
 
-        b = OnsetOffsetItem(onset, onset+10, self.parent, self)
-        self.behavior_items[onset] = b
-        self.update_behavior(b)
-
-    def check_for_overlap(self, onset, offset):
+    def check_for_overlap(self, onset, offset=None):
         # check if the provided item overlaps with any existing items
         # if it does, return the item that overlaps
         for other_onset, other_item in self.behavior_items.items():
@@ -591,9 +586,13 @@ class BehaviorTrack(QtWidgets.QGraphicsRectItem):
             # if our new onset is between the onset and offset of another item, don't update the onset
             if onset >= other_onset and onset <= other_item.offset:
                 return other_item
-            # if our new offset is between the onset and offset of another item, don't update the offset
-            if offset >= other_onset and offset <= other_item.offset:
-                return other_item
+            if offset is not None:
+                # if our new offset is between the onset and offset of another item, don't update the offset
+                if offset >= other_onset and offset <= other_item.offset:
+                    return other_item
+                # if we encompass another item, don't update the onset or offset
+                if onset <= other_onset and offset >= other_item.offset:
+                    return other_item
         return None
     
     def update_behavior(self, item: OnsetOffsetItem):
@@ -624,6 +623,12 @@ class BehaviorTrack(QtWidgets.QGraphicsRectItem):
                     item.n_offset = None
                     raise ValueError(
                         f"The provided offset time of {item.n_offset} overlaps with an existing range: {other_onset} - {other_item.offset}"
+                    )
+                # if we encompass another item, don't update the onset or offset
+                if item.onset <= other_onset and item.n_offset >= other_item.offset:
+                    item.n_offset = None
+                    raise ValueError(
+                        f"The provided onset/offset range of `{item.n_onset} : {item.n_offset}` overlaps with an existing range: {other_onset} - {other_item.offset}"
                     )
         # if we've made it this far, we can update the onset and offset
         if item.n_onset is not None and item.n_onset != item.onset:
@@ -682,13 +687,14 @@ class TimelineView(QGraphicsView):
         ################ TEMP ################
         self.behavior_tracks: List[BehaviorTrack] = []
         self.add_behavior_track("test")
+        self.add_behavior_track("2")
 
     def add_behavior_track(self, name: str):
         # add a new behavior track
         # get the y position of the new track
         y_pos = len(self.behavior_tracks) * self.track_height + self.track_y_start
         # create the new track
-        track = BehaviorTrack("Test", y_pos+27, self.track_height, OnsetOffset, self)
+        track = BehaviorTrack(name, y_pos+30, self.track_height, OnsetOffset, self)
         self.behavior_tracks.append(track)
         self.scene().addItem(track)
         # resize the view so that the track we can see the track
@@ -697,14 +703,15 @@ class TimelineView(QGraphicsView):
         self.scene().update()
         
     def add_oo_behavior(self, onset):
-        x = self.behavior_tracks[0].check_for_overlap(onset, onset+10)
-        if x is None:
-            self.behavior_tracks[0].add_behavior(onset)
-            self.scene().update()
+        if self.behavior_tracks[0].curr_behavior_item is None:
+            x = self.behavior_tracks[0].check_for_overlap(onset)
+            if x is None:
+                self.behavior_tracks[0].add_behavior(onset)
+                self.scene().update()
+            else:
+                x.setErrored()
         else:
-            # todo: add some notification that the behavior overlaps, maybe a red border around the offending item
-            # x is the offending item
-            x.setErrored()
+            self.behavior_tracks[0].curr_behavior_item = None
 
     def set_length(self, length: int):
         self.num_frames = length
@@ -771,6 +778,12 @@ class TimelineView(QGraphicsView):
         # move the playhead to a specific frame
         self.playhead.setPos(abs(self.get_x_pos_of_frame(frame)), 0)
         self.playhead.triangle.current_frame = frame
+        if self.behavior_tracks[0].curr_behavior_item is not None:
+            x = self.behavior_tracks[0].check_for_overlap(self.behavior_tracks[0].curr_behavior_item.onset, frame)
+            if x is None:
+                self.behavior_tracks[0].curr_behavior_item.offset = frame
+            else:
+                x.setErrored()
         self.valueChanged.emit(frame)
 
     def wheelEvent(self, event):
@@ -867,6 +880,7 @@ class TimelineView(QGraphicsView):
             view_width = self.rect().width()
             if mouse_pos >= view_pos and mouse_pos <= view_pos + view_width:
                 # if we're holding shift, snap to the nearest behavior onset or offset if it's within 20 pixels
+                frame = int(mouse_pos / self.frame_width) + 1
                 if event.modifiers() == Qt.KeyboardModifier.ShiftModifier:
                     # get the nearest behavior onset or offset
                     for key, track in self.item_keys_to_render.items():
@@ -879,8 +893,7 @@ class TimelineView(QGraphicsView):
                             break
                         else:
                             frame = int(mouse_pos / self.frame_width) + 1
-                else:
-                    frame = int(mouse_pos / self.frame_width) + 1
+
                 self.playhead.triangle.pressed = True
                 self.move_playhead_to_frame(frame)
                 self.playhead.triangle.pressed = False
@@ -971,6 +984,13 @@ class TimelineView(QGraphicsView):
     def update(self):
         if self.value:
             self.playhead.triangle.current_frame = self.value
+        if self.behavior_tracks[0].curr_behavior_item is not None:
+            x = self.behavior_tracks[0].check_for_overlap(self.behavior_tracks[0].curr_behavior_item.onset, self.value)
+            if x is None:
+                self.behavior_tracks[0].curr_behavior_item.offset = self.value
+            else:
+                x.setErrored()
+            
         self.move_playhead_to_frame(self.playhead.triangle.current_frame)
         super().update()
 
