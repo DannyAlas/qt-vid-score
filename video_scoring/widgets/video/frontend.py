@@ -215,7 +215,7 @@ class VideoPlayerDockWidget(QDockWidget):
 
     def _init_connections(self):
         self.video_widget.signals.frame.connect(self.update_timeline)
-        self.timeline = self.main_win.timeline_dock_widget
+        self.timeline = self.main_win.timeline_dw
         self.timeline.timeline_view.valueChanged.connect(self.timelineChanged)
         if self.started:
             self.timeline.set_length(self.video_widget.play_worker.vc.len)
@@ -310,19 +310,20 @@ class VideoPlayerDockWidget(QDockWidget):
             self.seek(value)
 
     def save_timestamp(self):
-        # # get the current frame number
-        # frame_num = self.video_widget.play_worker.vc.frame_num
-        # self.main_win.timeline.add_vid_time_stamp(frame_num)
-        # _ts = self.main_win.timeline.table_widget.timestamps
-        # # _ts is a dict of onset:{offset:float, sure:bool}
-        # # convert to a list containing all the onsets and offsets
-        # ts = []
-        # for onset, offset_dict in _ts.items():
-        #     ts.append(onset)
-        #     # if offset is not None:
-        #     if offset_dict["offset"] is not None:
-        #         ts.append(offset_dict["offset"])
-        pass
+        # get the current frame number
+        frame_num = self.video_widget.play_worker.vc.frame_num
+        self.main_win.timeline_dw.timeline_view.add_oo_behavior(frame_num)
+        self.main_win.timestamps_dw.table_widget.add_timestamp(frame_num)
+        _ts = self.main_win.timestamps_dw.table_widget.timestamps
+        # _ts is a dict of onset:{offset:float, sure:bool}
+        # convert to a list containing all the onsets and offsets
+        ts = []
+        for onset, offset_dict in _ts.items():
+            ts.append(onset)
+            # if offset is not None:
+            if offset_dict["offset"] is not None:
+                ts.append(offset_dict["offset"])
+
 
     def update_timeline(self, frame_num):
         if self.main_win.project_settings.scoring.save_frame_or_time == "frame":

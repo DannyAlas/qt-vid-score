@@ -169,7 +169,7 @@ class MainWindow(QMainWindow):
                 f"Imported video at {self.project_settings.video_file_location}"
             )
             self.save_settings()
-            self.video_player.start(file)
+            self.video_player_dw.start(file)
 
     def import_timestamps(self):
         pass
@@ -213,7 +213,7 @@ class MainWindow(QMainWindow):
                 f"Imported video at {self.project_settings.video_file_location}"
             )
             self.save_settings()
-            self.video_player.start(str(file))
+            self.video_player_dw.start(str(file))
         except:
             self.update_status(
                 f"Failed to import video at {self.project_settings.video_file_location}"
@@ -232,20 +232,26 @@ class MainWindow(QMainWindow):
         self.open_settings_widget()
         self.settings_dock_widget.hide()
 
-        self.video_player = VideoPlayerDockWidget(self, self)
+        self.video_player_dw = VideoPlayerDockWidget(self, self)
         # add as central widget
-        self.setCentralWidget(self.video_player)
-        self.dock_widgets_menu.addAction(self.video_player.toggleViewAction())
+        self.setCentralWidget(self.video_player_dw)
+        self.dock_widgets_menu.addAction(self.video_player_dw.toggleViewAction())
         if os.path.exists(self.project_settings.video_file_location):
-            self.video_player.start(self.project_settings.video_file_location)
+            self.video_player_dw.start(self.project_settings.video_file_location)
 
         from video_scoring.widgets.timeline import TimelineDockWidget
 
-        self.timeline_dock_widget = TimelineDockWidget(self, self)
+        self.timeline_dw = TimelineDockWidget(self, self)
         self.addDockWidget(
-            QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self.timeline_dock_widget
+            QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self.timeline_dw
         )
-        self.dock_widgets_menu.addAction(self.timeline_dock_widget.toggleViewAction())
+        self.dock_widgets_menu.addAction(self.timeline_dw.toggleViewAction())
+
+        self.timestamps_dw = TimeStampsDockwidget(self, self)
+        self.addDockWidget(
+            QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self.timestamps_dw
+        )
+        self.dock_widgets_menu.addAction(self.timestamps_dw.toggleViewAction())
 
     def open_settings_widget(self):
         if not hasattr(self, "settings_dock_widget"):
@@ -317,7 +323,7 @@ class MainWindow(QMainWindow):
 
     def get_frame_num(self):
         try:
-            return self.video_player.get_frame_num()
+            return self.video_player_dw.get_frame_num()
         except:
             return None
 

@@ -430,7 +430,7 @@ class TsWidget(QtWidgets.QWidget):
     def time_to_frame(self, timestamp):
         # frame_ts is a dict of {frame_num: timestamp}
         # we want to get the frame number associated with the timestamp
-        fts = self.main_win.video_player.video_widget.play_worker.vc.video.frame_ts
+        fts = self.main_win.video_player_dw.video_widget.play_worker.vc.video.frame_ts
         # get all the values from the dict
         values = list(fts.values())
         # get the index of the timestamp
@@ -441,7 +441,7 @@ class TsWidget(QtWidgets.QWidget):
 
     def frame_to_time(self, frame_num):
         # frame_ts is a dict of {frame_num: timestamp}
-        fts = self.main_win.video_player.video_widget.play_worker.vc.video.frame_ts
+        fts = self.main_win.video_player_dw.video_widget.play_worker.vc.video.frame_ts
         return fts[frame_num]
 
     def update_table(self):
@@ -560,14 +560,14 @@ class TimeStampsDockwidget(QtWidgets.QDockWidget):
         # get if the ts is a frame or time
         ts_type = self.main_win.project_settings.scoring.save_frame_or_time
         if ts_type == "frame":
-            self.main_win.video_player.seek(onset_time)
+            self.main_win.video_player_dw.seek(onset_time)
         elif ts_type == "timestamp":
-            self.main_win.video_player.seek(self.timestamp_to_frame(onset_time))
+            self.main_win.video_player_dw.seek(self.timestamp_to_frame(onset_time))
 
     def timestamp_to_frame(self, timestamp):
         # frame_ts is a dict of {frame_num: timestamp}
         # we want to get the frame number associated with the timestamp
-        fts = self.main_win.video_player.video_widget.play_worker.vc.video.frame_ts
+        fts = self.main_win.video_player_dw.video_widget.play_worker.vc.video.frame_ts
         # get all the values from the dict
         values = list(fts.values())
         # get the index of the timestamp
@@ -578,7 +578,7 @@ class TimeStampsDockwidget(QtWidgets.QDockWidget):
 
     def frame_to_timestamp(self, frame_num):
         # frame_ts is a dict of {frame_num: timestamp}
-        fts = self.main_win.video_player.video_widget.play_worker.vc.video.frame_ts
+        fts = self.main_win.video_player_dw.video_widget.play_worker.vc.video.frame_ts
         return fts[frame_num]
         
     # def import_ts(self, ts):
