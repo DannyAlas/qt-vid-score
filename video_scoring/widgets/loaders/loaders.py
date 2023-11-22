@@ -265,16 +265,16 @@ def read_sev(
                 )
                 hour_search = re.compile("-(\d)h")
                 for txt_path in txt_file_list:
-                    if verbose:
-                        print("info: log file", txt_path)
+                    # if verbose:
+                    #     print("info: log file", txt_path)
 
                     # get store name
                     temp_sample_info = {"hour": 0}
                     temp_sample_info["name"] = os.path.split(txt_path)[-1][:4]
                     with open(txt_path, "r") as f:
                         log_text = f.read()
-                        if verbose:
-                            print(log_text)
+                        # if verbose:
+                        #     print(log_text)
 
                     temp_start_sample = start_search.findall(log_text)
                     temp_sample_info["start_sample"] = int(temp_start_sample[0])
@@ -334,8 +334,8 @@ def read_sev(
         # warnings.warn('no sev files found in {0}'.format(sev_dir), Warning, stacklevel=2)
         return None
 
-    if fs > 0:
-        print("Using {:.4f} Hz as SEV sampling rate for {}".format(fs, event_name))
+    # if fs > 0:
+    #     print("Using {:.4f} Hz as SEV sampling rate for {}".format(fs, event_name))
 
     file_list = []
     for file in sev_files:
@@ -657,8 +657,8 @@ upgrade to OpenEx v2.18 or above\n""".format(
                         ),
                         dtype=data_format,
                     )
-        else:
-            print("exporting SEV stream {0}...".format(this_event))
+        # else:
+        #     print("exporting SEV stream {0}...".format(this_event))
 
         # loop through the time ranges
         for ii in range(num_ranges):
@@ -796,8 +796,8 @@ upgrade to OpenEx v2.18 or above\n""".format(
                             chan_index[chan] += len(ddd)
                             arr_index += 1
 
-                        if verbose:
-                            print(file_list[file_num])
+                        # if verbose:
+                        #     print(file_list[file_num])
 
                     # after reading chunks from all channels, export interlaced data
                     if scale != 1:
@@ -1055,11 +1055,11 @@ def read_block(
     else:
         for given_type in evtype:
             if given_type not in tdt.ALLOWED_EVTYPES:
-                print(
-                    "Unrecognized type: {0}\nAllowed types are: {1}".format(
-                        given_type, tdt.ALLOWED_EVTYPES
-                    )
-                )
+                # print(
+                #     "Unrecognized type: {0}\nAllowed types are: {1}".format(
+                #         given_type, tdt.ALLOWED_EVTYPES
+                #     )
+                # )
                 return None
     evtype = list(set(evtype))
 
@@ -1159,11 +1159,11 @@ def read_block(
             if sortname in sort_ids["sort_id"]:
                 for i in range(len(sort_ids["sort_id"])):
                     if sort_ids["sort_id"][i] == sortname:
-                        print(
-                            "Using sort_id:{0} for event:{1}".format(
-                                sortname, sort_ids["event"][i]
-                            )
-                        )
+                        # print(
+                        #     "Using sort_id:{0} for event:{1}".format(
+                        #         sortname, sort_ids["event"][i]
+                        #     )
+                        # )
                         custom_sort_event.append(sort_ids["event"][i])
                         ddd = np.fromfile(sort_ids["fileNames"][i], dtype=np.uint8)
                         custom_sort_channel_map.append(ddd[:1024])
@@ -1258,7 +1258,7 @@ def read_block(
     try:
         with open(notes_txt_path, "rt") as txt:
             notes_txt_lines = txt.readlines()
-        print("Found Synapse note file: {0}".format(notes_txt_path))
+        # print("Found Synapse note file: {0}".format(notes_txt_path))
     except:
         # warnings.warn('Synapse Notes file could not be processed', Warning, stacklevel=2)
         pass
@@ -1349,8 +1349,8 @@ def read_block(
 
                     if "date changed to" in this_note_text:
                         date_changed = True
-                        print(quotes[1])
-                        print()
+                        # print(quotes[1])
+                        # print()
                         temp = datetime.strptime(this_note_text[16:].lower(), yearfmt)
                         curr_day = temp.day
                         curr_month = temp.month

@@ -25,6 +25,27 @@ class SettingsDockWidget(QtWidgets.QDockWidget):
         self.tab_widget.setDocumentMode(True)
         self.create_tabs()
 
+    def reset_settings(self):
+        # open a dialog to confirm
+        msg = QtWidgets.QMessageBox()
+        msg.setIcon(QtWidgets.QMessageBox.Warning)
+        msg.setText("Reset Settings")
+        msg.setInformativeText(
+            "Are you sure you want to reset the settings to default?"
+        )
+        msg.setWindowTitle("Reset Settings")
+        msg.setStandardButtons(
+            QtWidgets.QMessageBox.StandardButton.Yes
+            | QtWidgets.QMessageBox.StandardButton.Cancel
+        )
+        msg.setDefaultButton(QtWidgets.QMessageBox.StandardButton.Cancel)
+        ret = msg.exec()
+        if ret == QtWidgets.QMessageBox.StandardButton.Cancel:
+            return
+        # reset the settings to default
+        self.main_win.project_settings = ProjectSettings()
+        self.refresh()
+
     def create_tabs(self):
         self.populate_tab(tab_widget=self.tab_widget, pyd_model=ProjectSettings())
         self.populate_tab(tab_widget=self.tab_widget, pyd_model=Playback())
@@ -63,6 +84,12 @@ class SettingsDockWidget(QtWidgets.QDockWidget):
                 )
             )
             widget.keySequenceChanged.connect(self.key_sequence_changed)
+
+        tab_layout.addStretch()
+        # add a button to reset the settings to default
+        reset_button = QtWidgets.QPushButton("Reset Settings")
+        reset_button.clicked.connect(self.reset_settings)
+        tab_layout.addWidget(reset_button)
 
     ############ Custom widgets for settings ############
     def _settings_file_location(self):
@@ -206,6 +233,12 @@ class SettingsDockWidget(QtWidgets.QDockWidget):
                 widget.setObjectName(field_name)
                 label.setToolTip(help_text)
 
+        tab_layout.addStretch()
+        # add a button to reset the settings to default
+        reset_button = QtWidgets.QPushButton("Reset Settings")
+        reset_button.clicked.connect(self.reset_settings)
+        tab_layout.addWidget(reset_button)
+    
     def guess_widget(self, field_name: str, f_type: type, settings: AbstSettings):
         """
         Given the name of a field and the type of the field, will return a widget that is appropriate for the field with no hooks
@@ -295,7 +328,6 @@ class SettingsDockWidget(QtWidgets.QDockWidget):
             return
         if pyd_model.__class__.__name__ == "ProjectSettings":
             self.main_win.project_settings.__setattr__(widget.objectName(), value)
-            print(self.main_win.project_settings.__getattribute__(widget.objectName()))
         elif pyd_model.__class__.__name__ == "Playback":
             self.main_win.project_settings.playback.__setattr__(
                 widget.objectName(), value

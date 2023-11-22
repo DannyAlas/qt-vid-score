@@ -10,9 +10,10 @@ from qtpy.QtGui import QAction, QIcon, QImage, QPixmap
 from qtpy.QtWidgets import (QApplication, QLabel, QMainWindow, QMenuBar,
                             QPushButton, QSizePolicy, QSlider, QVBoxLayout,
                             QWidget)
-
+import logging
 if TYPE_CHECKING:
     import numpy as np
+log = logging.getLogger()
 
 
 class VideoFile:
@@ -93,7 +94,8 @@ class VideoCapture(QMutex):
 
     def updateStatus(self, msg: str, _log: bool = False):
         """update the status bar by sending a signal"""
-        print(msg)
+        # TODO: fix this with proper logging and the updateStatus below
+        log.info(msg)
 
     def updateFPS(self, fps):
         self.fps = fps
@@ -318,4 +320,4 @@ class VideoWidget(QWidget):
             self.play_thread.start()
 
     def updateStatus(self, err, show):
-        print(err, show)
+        log.error(err)

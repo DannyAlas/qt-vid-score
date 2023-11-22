@@ -1,10 +1,11 @@
+from email.charset import QP
 from tkinter import E
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
-from qtpy import QtCore, QtGui
-from qtpy.QtCore import QObject, Qt, QThread, Signal, Slot
-from qtpy.QtGui import QImage, QPixmap
+from qtpy import QtCore
+from qtpy.QtCore import QObject, Qt, QThread, Signal, Slot, QUrl
+from qtpy.QtGui import QImage, QPixmap, QPainter, QBrush
 from qtpy.QtWidgets import (QDockWidget, QLabel, QPushButton, QSizePolicy,
                             QSlider, QStyleOptionSlider, QVBoxLayout, QWidget)
 
@@ -17,8 +18,9 @@ if TYPE_CHECKING:
 class VideoDisplay(QLabel):
     """A QLabel where we always repaint the most recent frame"""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent:'VideoWidget'):
         super(VideoDisplay, self).__init__(parent)
+        self.parent = parent
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setMinimumSize(1, 1)
@@ -39,9 +41,10 @@ class VideoWidgetSignals(QObject):
 
 # a window with a VideoDisplay label for displaying the video
 class VideoWidget(QWidget):
-    def __init__(self, parent=None):
+    def __init__(self, parent: 'VideoPlayerDockWidget'):
         super(VideoWidget, self).__init__(parent)
-        self.video_display = VideoDisplay()
+        self.parent = parent
+        self.video_display = VideoDisplay(self)
         self.signals = VideoWidgetSignals()
         self.layout = QVBoxLayout()
         self.layout.addWidget(self.video_display)
@@ -53,15 +56,17 @@ class VideoWidget(QWidget):
         self.play_worker = None
         self.lastFrame = None
         self.framesSincePrev = 0
-
-    def showDefaultImage(self):
-        # instead of the video display, show a default image if the video is not playing
+        # create a url for the background image
         self.default_image = QPixmap(
             r"C:\dev\projects\qt-vid-scoring\qt-vid-score\video_scoring\Images\icon_gray.png"
         )
         self.default_image = self.default_image.scaledToHeight(
             200, QtCore.Qt.TransformationMode.SmoothTransformation
         )
+        self.default_image_widget = None
+
+    def showDefaultImage(self):
+        # instead of the video display, show a default image if the video is not playing
         # make a widget to hold the image that will be centered in the window
         self.default_image_widget = QWidget()
         self.default_image_widget.setSizePolicy(
@@ -139,21 +144,6 @@ class VideoWidget(QWidget):
         self.play_thread.start()
         self.play_worker.seek(0)
 
-    def paintEvent(self, a0):
-        while self.video_file is None:
-            # calculate the size of the window, determine the center, and draw the default image
-            image = self.default_image
-            image_size = image.size()
-            window_size = self.size()
-            x = (window_size.width() - image_size.width()) / 2
-            y = (window_size.height() - image_size.height()) / 2
-            qp = QtGui.QPainter(self)
-            qp.drawPixmap(x, y, image)
-            qp.end()
-            super(VideoWidget, self).paintEvent(a0)
-            return
-        super(VideoWidget, self).paintEvent(a0)
-
     def updateStatus(self, err, show):
         self.parent.main_win.update_status(err)
 
@@ -198,9 +188,9 @@ class VideoPlayerDockWidget(QDockWidget):
     def __init__(self, main_win: "MainWindow", parent=None):
         super(VideoPlayerDockWidget, self).__init__(parent)
         self.setWindowTitle("Video Player")
+        self.main_win = main_win
         self.video_widget = VideoWidget(self)
         self.player_controls = PlayerControls(self)
-        self.main_win = main_win
         self.started = False
         # set the layout
         self.layout = QVBoxLayout()
@@ -220,6 +210,7 @@ class VideoPlayerDockWidget(QDockWidget):
         if self.started:
             self.timeline.set_length(self.video_widget.play_worker.vc.len)
             self.toggle_play()
+
     def start(self, video_file):
         try:
             self.video_widget.startPlayer(video_file)
@@ -232,7 +223,6 @@ class VideoPlayerDockWidget(QDockWidget):
     def toggle_play(self):
         if self.video_widget.play_worker is None:
             return
-
         if self.video_widget.play_worker.paused:
             self.video_widget.play_worker.play()
             self.timeline.timeline_view.playing = True
@@ -248,48 +238,66 @@ class VideoPlayerDockWidget(QDockWidget):
         self.video_widget.play_worker.seek(frame_num)
 
     def seek_forward_small_frames(self):
+        if self.video_widget.play_worker is None:
+            return
         self.seek(
             self.video_widget.play_worker.vc.frame_num
             + self.main_win.project_settings.playback.seek_video_small
         )
 
     def seek_back_small_frames(self):
+        if self.video_widget.play_worker is None:
+            return
         self.seek(
             self.video_widget.play_worker.vc.frame_num
             - self.main_win.project_settings.playback.seek_video_small
         )
 
     def seek_forward_medium_frames(self):
+        if self.video_widget.play_worker is None:
+            return
         self.seek(
             self.video_widget.play_worker.vc.frame_num
             + self.main_win.project_settings.playback.seek_video_medium
         )
 
     def seek_back_medium_frames(self):
+        if self.video_widget.play_worker is None:
+            return
         self.seek(
             self.video_widget.play_worker.vc.frame_num
             - self.main_win.project_settings.playback.seek_video_medium
         )
 
     def seek_forward_large_frames(self):
+        if self.video_widget.play_worker is None:
+            return
         self.seek(
             self.video_widget.play_worker.vc.frame_num
             + self.main_win.project_settings.playback.seek_video_large
         )
 
     def seek_back_large_frames(self):
+        if self.video_widget.play_worker is None:
+            return
         self.seek(
             self.video_widget.play_worker.vc.frame_num
             - self.main_win.project_settings.playback.seek_video_large
         )
 
     def seek_to_first_frame(self):
+        if self.video_widget.play_worker is None:
+            return
         self.seek(0)
 
     def seek_to_last_frame(self):
+        if self.video_widget.play_worker is None:
+            return
         self.seek(self.video_widget.play_worker.vc.len - 1)
 
     def increase_playback_speed(self):
+        if self.video_widget.play_worker is None:
+            return
         self.toggle_play()
         self.video_widget.play_worker.updateFPS(
             self.video_widget.play_worker.vc.fps
@@ -298,6 +306,8 @@ class VideoPlayerDockWidget(QDockWidget):
         self.toggle_play()
 
     def decrease_playback_speed(self):
+        if self.video_widget.play_worker is None:
+            return
         self.toggle_play()
         self.video_widget.play_worker.updateFPS(
             self.video_widget.play_worker.vc.fps
@@ -306,10 +316,15 @@ class VideoPlayerDockWidget(QDockWidget):
         self.toggle_play()
 
     def timelineChanged(self, value):
-        if self.timeline.timeline_view.isPlayheadDown():
+        # if the video is not playing, seek to the new position
+        if self.video_widget.play_worker is None:
+            return
+        if self.video_widget.play_worker.vc.frame_num != value:
             self.seek(value)
 
     def save_timestamp(self):
+        if self.video_widget.play_worker is None:
+            return
         # get the current frame number
         frame_num = self.video_widget.play_worker.vc.frame_num
         self.main_win.timeline_dw.timeline_view.add_oo_behavior(frame_num)

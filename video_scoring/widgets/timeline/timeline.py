@@ -1,656 +1,24 @@
 
-from PyQt6 import QtCore, QtGui
-from qtpy.QtWidgets import QGraphicsRectItem, QGraphicsItemGroup, QGraphicsItem, QGraphicsSceneDragDropEvent, QGraphicsSceneHoverEvent, QGraphicsSceneMouseEvent, QGraphicsView, QGraphicsScene, QGraphicsLineItem, QGraphicsPolygonItem, QMainWindow, QStyleOptionGraphicsItem, QWidget, QSizePolicy
-from qtpy import QtCore, QtGui, QtWidgets
-from qtpy.QtCore import Qt, QRectF, QPointF, Signal
-from qtpy.QtGui import QColor, QPen, QBrush, QPolygonF
-from typing import TYPE_CHECKING, Union, Optional, List, Literal 
+from qtpy.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsLineItem, QFrame, QDockWidget
+from qtpy.QtCore import Qt, QRectF, Signal
+from qtpy.QtGui import  QPen, QPainter
+from typing import TYPE_CHECKING, List 
+from video_scoring.widgets.timeline.track import BehaviorTrack
+from video_scoring.widgets.timeline.playhead import CustomPlayhead
 
 if TYPE_CHECKING:
     from video_scoring import MainWindow
 
 
-class OnsetOffset(dict):
-    """
-    Represents a dictionary of onset and offset frames. Provides methods to add a new entry with checks for overlap. Handels sorting.
-
-    Notes
-    -----
-    The Key is the onset frame and the value is a dict with the keys "offset", "sure", and "notes". The value of "offset" is the offset frame. The value of "sure" is a bool indicating if the onset-offset pair is sure. The value of "notes" is a string.
-
-    We only store frames in the dict. The conversion to a time is handled by the UI. We will always store the onset and offset as frames. 
-    
-    """
-    
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._onset_offset = {}
-
-    def __setitem__(self, key, value):
-        # check if the key is a frame number
-        if not isinstance(key, int):
-            raise TypeError("The key must be an integer")
-
-        # check if the value is a dict
-        if not isinstance(value, dict):
-            raise TypeError("The value must be a dict")
-
-        # check if the value has the correct keys
-        if not all(
-            key in value.keys() for key in ["offset", "sure", "notes"]
-        ):
-            raise ValueError(
-                'The value must have the keys "offset", "sure", and "notes"'
-            )
-
-        # check if the offset is a frame number
-        if value["offset"] is not None and not isinstance(value["offset"], int):
-            raise TypeError("The offset must be an integer or None")
-
-        # check if sure is a bool
-        if not isinstance(value["sure"], bool):
-            raise TypeError("The sure value must be a bool")
-
-        # check if notes is a string
-        if not isinstance(value["notes"], str):
-            raise TypeError("The notes value must be a string")
-
-        # check if the onset is already in the dict
-        if key in self._onset_offset.keys():
-            raise ValueError("The onset is already in the dict")
-
-    def add_onset(self, onset, offset=None, sure=None, notes=None):
-        # check if the onset is already in the dict
-        if onset in self._onset_offset.keys():
-            raise ValueError("The onset is already in the dict")
-
-        # check if the offset is a frame number
-        if offset is not None and not isinstance(offset, int):
-            raise TypeError("The offset must be an integer or None")
-
-        # check if sure is a bool
-        if sure is not None and not isinstance(sure, bool):
-            raise TypeError("The sure value must be a bool")
-
-        # check if notes is a string
-        if notes is not None and not isinstance(notes, str):
-            raise TypeError("The notes value must be a string")
-
-        # check for overlap
-        self._check_overlap(onset=onset, offset=offset)
-
-        # add the onset to the dict
-        self._onset_offset[onset] = {
-            "offset": offset,
-            "sure": sure,
-            "notes": notes,
-        }
-
-        # sort dict by onset
-        self._onset_offset = dict(sorted(self._onset_offset.items(), key=lambda x: x[0]))
-
-    def add_offset(self, onset, offset):
-        # check if the onset is already in the dict
-        if onset not in self._onset_offset.keys():
-            raise ValueError("The onset is not in the dict")
-
-        # check if the offset is a frame number
-        if not isinstance(offset, int):
-            raise TypeError("The offset must be an integer")
-
-        # check for overlap
-        self._check_overlap(onset=onset, offset=offset)
-
-        # add the offset to the dict
-        self._onset_offset[onset]["offset"] = offset
-
-        # sort dict by onset
-        self._onset_offset = dict(sorted(self._onset_offset.items(), key=lambda x: x[0]))
-
-    def add_sure(self, onset, sure):
-        # check if the onset is already in the dict
-        if onset not in self._onset_offset.keys():
-            raise ValueError("The onset is not in the dict")
-
-        # check if sure is a bool
-        if not isinstance(sure, bool):
-            raise TypeError("The sure value must be a bool")
-
-        # add the sure to the dict
-        self._onset_offset[onset]["sure"] = sure
-
-    def add_notes(self, onset, notes):
-        # check if the onset is already in the dict
-        if onset not in self._onset_offset.keys():
-            raise ValueError("The onset is not in the dict")
-
-        # check if notes is a string
-        if not isinstance(notes, str):
-            raise TypeError("The notes value must be a string")
-
-        # add the notes to the dict
-        self._onset_offset[onset]["notes"] = notes
-        
-    def _check_overlap(self, onset, offset=None):
-        """
-        Check if the provided onset and offset times overlap with any existing ranges.
-
-        Parameters
-        ----------
-        onset : int
-            The onset frame.
-        offset : int, optional
-            The offset frame, by default None.
-
-        Raises
-        ------
-        ValueError
-            If there is an overlap.
-        """
-        
-        # If we are adding a new onset, check if it will overlap with any existing onset - offset ranges
-        if offset is None:
-            for n_onset, entry in self._onset_offset.items():
-                # some entries may not have an offset yet
-                if entry["offset"] is None:
-                    continue
-                if onset >= n_onset and onset <= entry["offset"]:
-                    raise ValueError(
-                        f"The provided onset time of {onset} overlaps with an existing range: {n_onset} - {entry['offset']}"
-                    )
-
-        if offset is not None:
-            if offset <= onset:
-                raise ValueError(
-                    f"The provided offset frame of {offset} is before the onset frame of {onset}"
-                )
-            for n_onset, entry in self._onset_offset.items():
-                # some entries may not have an offset yet
-                if entry["offset"] is None:
-                    continue
-                if onset >= n_onset and onset <= entry["offset"]:
-                    raise ValueError(
-                        f"The provided onset/offset range of `{onset} : {offset}` overlaps with an existing range: {n_onset} - {entry['offset']}"
-                    )
-
-class Single(dict):
-    """Represents a dictionary of onset frames. Handels sorting."""
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._onset = {}
-
-    def __setitem__(self, key, value):
-        # check if the key is a frame number
-        if not isinstance(key, int):
-            raise TypeError("The key must be an integer")
-
-        # check if the value is a dict
-        if not isinstance(value, dict):
-            raise TypeError("The value must be a dict")
-
-        # check if the value has the correct keys
-        if not all(
-            key in value.keys() for key in ["sure", "notes"]
-        ):
-            raise ValueError(
-                'The value must have the keys "sure", and "notes"'
-            )
-
-        # check if sure is a bool
-        if not isinstance(value["sure"], bool):
-            raise TypeError("The sure value must be a bool")
-
-        # check if notes is a string
-        if not isinstance(value["notes"], str):
-            raise TypeError("The notes value must be a string")
-
-        # check if the onset is already in the dict
-        if key in self._onset.keys():
-            raise ValueError("The onset is already in the dict")
-
-    def add_onset(self, onset, sure=None, notes=None):
-        # check if the onset is already in the dict
-        if onset in self._onset.keys():
-            raise ValueError("The onset is already in the dict")
-
-        # check if sure is a bool
-        if sure is not None and not isinstance(sure, bool):
-            raise TypeError("The sure value must be a bool")
-
-        # check if notes is a string
-        if notes is not None and not isinstance(notes, str):
-            raise TypeError("The notes value must be a string")
-
-        # add the onset to the dict
-        self._onset[onset] = {
-            "sure": sure,
-            "notes": notes,
-        }
-
-        # sort dict by onset
-        self._onset = dict(sorted(self._onset.items(), key=lambda x: x[0]))
-
-    def add_sure(self, onset, sure):
-        # check if the onset is already in the dict
-        if onset not in self._onset.keys():
-            raise ValueError("The onset is not in the dict")
-
-        # check if sure is a bool
-        if not isinstance(sure, bool):
-            raise TypeError("The sure value must be a bool")
-
-        # add the sure to the dict
-        self._onset[onset]["sure"] = sure
-
-    def add_notes(self, onset, notes):
-        # check if the onset is already in the dict
-        if onset not in self._onset.keys():
-            raise ValueError("The onset is not in the dict")
-
-        # check if notes is a string
-        if not isinstance(notes, str):
-            raise TypeError("The notes value must be a string")
-
-        # add the notes to the dict
-        self._onset[onset]["notes"] = notes
-
-class Behaviors(dict):
-    """Represents a dictionary of behaviors. Each behavior has a name as a key and implements the OnsetOffset or Singe class as the value."""
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._behaviors = {}
-
-    def __setitem__(self, key, value):
-        # check if the key is a string
-        if not isinstance(key, str):
-            raise TypeError("The key must be a string")
-
-        # check if the value is a OnsetOffset or Single object
-        if not isinstance(value, (OnsetOffset, Single)):
-            raise TypeError("The value must be a OnsetOffset or Single object")
-
-        # check if the onset is already in the dict
-        if key in self._behaviors.keys():
-            raise ValueError("The behavior is already in the dict")
-
-    def add_behavior(self, name, behavior_type: Union[OnsetOffset, Single]):
-        # check if the behavior is already in the dict
-        if name in self._behaviors.keys():
-            raise ValueError("The behavior is already in the dict")
-
-        # add the behavior to the dict
-        self._behaviors[name] = behavior_type
-
-class playheadSignals(QtCore.QObject):
-    valueChanged = Signal(int)
-class DraggableTriangle(QGraphicsPolygonItem):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.signals = playheadSignals()
-        # Define the shape as a pentagon
-        self.setPolygon(QPolygonF([
-            QPointF(-10, -12), 
-            QPointF(10, -12),
-            QPointF(10, -5), 
-            QPointF(0, 0),
-            QPointF(-10, -5),
-            ]))
-        self.setBrush(QBrush(QColor("#6aa1f5")))
-        self.setFlag(QGraphicsLineItem.GraphicsItemFlag.ItemIsSelectable, False)
-        self.setFlag(QGraphicsLineItem.GraphicsItemFlag.ItemIsMovable, True)  
-        self.setAcceptHoverEvents(True)
-        self.setFlag(QGraphicsLineItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
-        self.current_frame = 0
-        self.pressed = False
-
-    def mousePressEvent(self, event):
-        self.pressed = True
-        super().mousePressEvent(event)
-
-    def hoverEnterEvent(self, event):
-        # lighten the color of the playhead
-        self.setBrush(QBrush(QColor("#a7c8f2")))
-        super().hoverEnterEvent(event)
-
-    def hoverLeaveEvent(self, event):
-        # restore the color of the playhead
-        self.setBrush(QBrush(QColor("#6aa1f5")))
-        super().hoverLeaveEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        self.pressed = False
-        super().mouseReleaseEvent(event)
-
-class CustomPlayhead(QGraphicsLineItem):
-    def __init__(self, x, y, height, frame_width, tl: 'TimelineView'):
-        super().__init__(0, y, 0, y + height + 10)
-        self.frame_width = frame_width
-        self.tl = tl
-        self.setFlag(QGraphicsLineItem.GraphicsItemFlag.ItemIsSelectable, False)
-        self.setFlag(QGraphicsLineItem.GraphicsItemFlag.ItemIsMovable, False)
-        # set color
-        pen = QPen(Qt.GlobalColor.black, 2)
-        self.setPen(pen)
-        self.setZValue(1000)
-        # Create the triangle and set it as a child of the line
-        self.triangle = DraggableTriangle(self)
-        
-    def updateFrameWidth(self, new_width):
-        self.frame_width = new_width
-
-class OnsetOffsetItemSignals(QtCore.QObject):
-    unhighlight_sig = Signal()
-
-class OnsetOffsetItem(QGraphicsRectItem):
-    """
-    This will be a behavior item that has onset and offset times
-    It's edges will be draggable to change the onset and offset times
-    Grabbing the middle will move the whole thing
-    """
-    def __init__(self, onset, offset, view: 'TimelineView', parent: 'BehaviorTrack'=None):
-        super().__init__(parent)
-        self.parent = parent
-        self.view = view
-        self.onset = onset
-        self.offset = offset
-        self.signals = OnsetOffsetItemSignals()
-        self.n_onset = None
-        self.n_offset = None
-        # self.acceptHoverEvents()
-        self.pressed = False
-        # self.last_mouse_pos = None
-        self.left_edge_grabbed = False
-        self.right_edge_grabbed = False
-        self.hovered = False
-        self.hover_left_edge = False
-        self.hover_right_edge = False
-        self.edge_grab_boundary = 8
-        self.extend_edge_grab_boundary = 8
-        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
-        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
-        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
-        self.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
-        self.setAcceptHoverEvents(True)
-        self.signals.unhighlight_sig.connect(self.unhighlight)
-        # set geometry
-        self.base_color = QColor("#6aa1f5")
-        self.setBrush(QBrush(self.base_color))
-        self.highlight_color = QColor("#9cc5f8")
-
-    def mousePressEvent(self, event):
-        # Handle mouse press events
-        self.pressed = True
-        self.last_mouse_pos = event.pos()
-        # if its we're smaller than 10 pixels, determine which edge we're closest to by dividing the width by 2
-        if self.rect().width() < 10:
-            if event.pos().x() <= self.rect().width() / 2:
-                self.left_edge_grabbed = True
-                self.right_edge_grabbed = False
-            else:
-                self.left_edge_grabbed = False
-                self.right_edge_grabbed = True
-        elif event.pos().x() <= self.edge_grab_boundary + self.extend_edge_grab_boundary:
-            self.left_edge_grabbed = True
-            self.right_edge_grabbed = False
-        elif event.pos().x() >= self.rect().width() - self.edge_grab_boundary - self.extend_edge_grab_boundary:
-            self.left_edge_grabbed = False
-            self.right_edge_grabbed = True
-        else:
-            self.left_edge_grabbed = False
-            self.right_edge_grabbed = False
-
-        super().mousePressEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        self.pressed = False
-        super().mouseReleaseEvent(event)
-
-    def highlight(self):
-        self.setBrush(QBrush(self.highlight_color))
-
-    def unhighlight(self):
-        self.setBrush(QBrush(self.base_color))
-
-    def errorHighlight(self):
-        self.setBrush(QBrush(QColor("#ff0000")))
-
-    def setErrored(self):
-        # will set the error highlight for a short time
-        self.errorHighlight()
-        QtCore.QTimer.singleShot(300, self.unhighlight)
-
-    def mouseMoveEvent(self, event):
-        if self.pressed:
-            # set our z value to be on top of everything except the playhead
-            self.setZValue(999)
-            # re implement the mouse move event to move the rect only horizontally
-            if self.left_edge_grabbed:
-                scene_x  = self.mapToScene(event.pos() - self.last_mouse_pos).x()
-                # Ensure the onset is not before the beginning of the video
-                if scene_x < 0:
-                    return
-                nearest_frame = self.view.get_frame_of_x_pos(scene_x)
-                # Ensure onset frame does not exceed offset frame
-                if nearest_frame >= self.offset:
-                    return
-                # Get the x position of the nearest frame in scene coordinates
-                snapped_x = round(scene_x / self.view.frame_width) * self.view.frame_width
-                # Convert snapped x position to local coordinates
-                snapped_x_local = snapped_x - self.pos().x()
-                # Store the right edge x-coordinate in local coordinates
-                right_edge_local = self.rect().right()
-                # Calculate the new width
-                new_width = right_edge_local - snapped_x_local
-                # save the old position
-                old_x_local = self.rect().left()
-                old_width = self.rect().width()
-                # Set the new position and size of the rectangle using local coordinates
-                self.setRect(snapped_x_local, self.rect().top(), new_width, self.rect().height())
-                self.n_onset = self.view.get_frame_of_x_pos(self.mapToScene(self.rect().left(),0).x())
-                try:
-                    self.parent.update_behavior(self)
-                except ValueError:
-                    # If the update fails, revert to the old position and size
-                    self.setRect(old_x_local, self.rect().top(), old_width, self.rect().height())
-                    self.n_onset = None
-            elif self.right_edge_grabbed:
-                scene_x = min(self.mapToScene(event.pos()).x(), self.view.sceneRect().right())
-                snapped_x_local = round(scene_x / self.view.frame_width) * self.view.frame_width - self.pos().x()
-                new_width = snapped_x_local - self.rect().left()
-                if new_width < 1:
-                    return
-                old_width = self.rect().width()
-                self.setRect(self.rect().left(), self.rect().top(), new_width, self.rect().height())
-                self.n_offset = int(self.mapToScene(event.pos()).x() / self.view.frame_width) + 1
-                try:
-                    self.parent.update_behavior(self)
-                except ValueError:
-                    self.setRect(self.rect().left(), self.rect().top(), old_width, self.rect().height())
-                    self.n_offset = None
-            else:
-                scene_pos = self.mapToScene(event.pos() - self.last_mouse_pos)
-                # Get the nearest frame based on the mouse x position
-                nearest_frame = self.view.get_frame_of_x_pos(scene_pos.x())
-                # Get the x position of the nearest frame
-                new_x = self.view.get_x_pos_of_frame(nearest_frame)
-                if new_x < 0:
-                    new_x = 0
-                # Get the old width
-                old_x = self.pos().x()
-                self.setPos(new_x, self.pos().y())
-                self.update()
-                self.n_onset = self.view.get_frame_of_x_pos(self.mapToScene(self.rect().left(),0).x())
-                self.n_offset = self.view.get_frame_of_x_pos(self.mapToScene(self.rect().right(),0).x())
-                try:
-                    self.parent.update_behavior(self)
-                except ValueError:
-                    self.setPos(old_x, self.pos().y())
-                    self.n_onset = None
-                    self.n_offset = None
-        self.setZValue(10)
-        self.scene().update()
-
-    def hoverEnterEvent(self, event):
-        # lighten the color fill of the rectangle
-        self.highlight()
-        self.hovered = True
-        super().hoverEnterEvent(event)
-
-    def hoverLeaveEvent(self, event):
-        # restore the color of the playhead
-        self.unhighlight()
-        self.setCursor(Qt.CursorShape.ArrowCursor)
-        self.hovered = False
-        self.hover_left_edge = False
-        self.hover_right_edge = False
-        self.setZValue(10)
-        super().hoverLeaveEvent(event)
-
-    def hoverMoveEvent(self, event: QGraphicsSceneHoverEvent | None) -> None:
-        # get our size, if its we're smaller than 10 pixels, determine which edge we're closest to
-        if event.pos().x() <= self.edge_grab_boundary + self.extend_edge_grab_boundary:
-            self.setCursor(Qt.CursorShape.SizeHorCursor)
-            self.hover_left_edge = True
-        elif event.pos().x() >= self.rect().width() - self.edge_grab_boundary - self.extend_edge_grab_boundary:
-            self.setCursor(Qt.CursorShape.SizeHorCursor)
-            self.hover_right_edge = True
-        else:
-            self.setCursor(Qt.CursorShape.ArrowCursor)
-            self.hover_left_edge = False
-            self.hover_right_edge = False
-        return super().hoverMoveEvent(event)
-
-    def paint(self, painter: QtGui.QPainter, option: QStyleOptionGraphicsItem, widget: QWidget | None = None) -> None:
-        # make a light gray pen with rounded edges
-        if self.hovered:
-            pen = QPen(Qt.GlobalColor.lightGray, 1)
-            painter.setPen(pen)
-            # add a border around the rectangle with no fill
-            border = QRectF(self.rect().left(), self.rect().top(), self.rect().width(), self.rect().height())
-            painter.drawRect(border)
-        if self.hover_left_edge:
-            pen = QPen(Qt.GlobalColor.lightGray, 3)
-            painter.setPen(pen)
-            # plce the line on the left edge but offset by 1 pixel so that it doesn't get cut off
-            painter.drawLine(int(self.rect().left())-1, 2, int(self.rect().left())-1, int(self.rect().height())-2)
-        elif self.hover_right_edge:
-            pen = QPen(Qt.GlobalColor.lightGray, 3)
-            painter.setPen(pen)
-            painter.drawLine(int(self.rect().width()), 2, int(self.rect().width()), int(self.rect().height())-2)
-        super().paint(painter, option, widget)
-
-        # This is for debugging
-        # painter.setPen(QPen(Qt.GlobalColor.black, 3))
-        # painter.setFont(QtGui.QFont("Arial", 10))
-        # painter.setBrush(QBrush(Qt.GlobalColor.white))
-        # painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
-        # painter.setRenderHint(QtGui.QPainter.RenderHint.TextAntialiasing)
-        # # on the left edge, draw our onset frame
-        # painter.drawText(int(self.rect().left()), int(self.rect().top())+10, str(self.onset))        
-        # # on the right edge, draw our offset frame
-        # painter.drawText(int(self.rect().width())-30, int(self.rect().top())+10, str(self.offset))
-class BehaviorTrack(QtWidgets.QGraphicsRectItem):
-    def __init__(self, name: str, y_position, track_height, behavior_type: Literal['OnsetOffset', 'Single'], parent:'TimelineView'):
-        super().__init__()
-        self.parent = parent
-        self.name = name
-        self.y_position = y_position
-        self.track_height = track_height
-        self.behavior_type = behavior_type
-        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
-        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
-        self.setFlag(QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, False)
-        self.setAcceptHoverEvents(True)
-        # dark gray background
-        self.setBrush(QBrush(QColor("#545454")))
-
-        # a dict of behavior items where the key is the onset frame and the value is the item
-        self.behavior_items: dict[int, OnsetOffsetItem] = {}
-
-        self.curr_behavior_item: Optional[OnsetOffsetItem] = None
-        
-    def add_behavior(self, onset):
-        # add a new behavior item
-        # if offset is none we're we will be changing the offset based on the playheads position
-        self.curr_behavior_item  = OnsetOffsetItem(onset, onset+1, self.parent, self)
-        self.behavior_items[onset] = self.curr_behavior_item
-        self.update_behavior(self.curr_behavior_item)
-
-    def check_for_overlap(self, onset, offset=None):
-        # check if the provided item overlaps with any existing items
-        # if it does, return the item that overlaps
-        for other_onset, other_item in self.behavior_items.items():
-            # skip the item we're checking
-            if other_onset == onset:
-                continue
-            # if our new onset is between the onset and offset of another item, don't update the onset
-            if onset >= other_onset and onset <= other_item.offset:
-                return other_item
-            if offset is not None:
-                # if our new offset is between the onset and offset of another item, don't update the offset
-                if offset >= other_onset and offset <= other_item.offset:
-                    return other_item
-                # if we encompass another item, don't update the onset or offset
-                if onset <= other_onset and offset >= other_item.offset:
-                    return other_item
-        return None
-    
-    def update_behavior(self, item: OnsetOffsetItem):
-        # we've updated the onset
-        if item.n_onset is not None and item.n_onset != item.onset:
-            # if the new onset is already in the dict, don't update the onset
-            if item.n_onset in self.behavior_items.keys():
-                item.n_onset = None
-                raise ValueError("The onset is already in the dict")
-            for other_onset, other_item in self.behavior_items.items():
-                # skip the item we're updating
-                if other_onset == item.onset:
-                    continue
-                # if our new onset is between the onset and offset of another item, don't update the onset
-                if other_onset <= item.n_onset and other_item.offset >= item.n_onset+1:
-                    item.n_onset = None
-                    raise ValueError(
-                        f"The provided onset time of {item.n_onset} overlaps with an existing range: {other_onset} - {other_item.offset}"
-                    )
-        # we've updated the offset
-        if item.n_offset is not None and item.n_offset != item.offset:
-            for other_onset, other_item in self.behavior_items.items():
-                # skip the item we're updating
-                if other_onset == item.onset:
-                    continue
-                # if our new offset is between the onset and offset of another item, don't update the offset
-                if item.n_offset-1 >= other_onset and item.n_offset <= other_item.offset:
-                    item.n_offset = None
-                    raise ValueError(
-                        f"The provided offset time of {item.n_offset} overlaps with an existing range: {other_onset} - {other_item.offset}"
-                    )
-                # if we encompass another item, don't update the onset or offset
-                if item.onset <= other_onset and item.n_offset >= other_item.offset:
-                    item.n_offset = None
-                    raise ValueError(
-                        f"The provided onset/offset range of `{item.n_onset} : {item.n_offset}` overlaps with an existing range: {other_onset} - {other_item.offset}"
-                    )
-        # if we've made it this far, we can update the onset and offset
-        if item.n_onset is not None and item.n_onset != item.onset:
-        # update our dict
-            self.behavior_items[item.n_onset] = self.behavior_items.pop(item.onset)
-            # update the onset
-            item.onset = item.n_onset
-            item.n_onset = None
-        if item.n_offset is not None and item.n_offset != item.offset:
-            # update the offset
-            item.offset = item.n_offset
-            item.n_offset = None
-
-
 class TimelineView(QGraphicsView):
     valueChanged = Signal(int)
     frame_width_changed = Signal(int)
-    def __init__(self, num_frames):
+    def __init__(self, num_frames, parent:'TimelineDockWidget' = None):
         super().__init__()
         # Set up the scene
         self.setScene(QGraphicsScene(self))
         self.setMouseTracking(True)
+        self.parent = parent
         self.value = 0 # Current frame
         self.base_frame_width = 50  # Base width for each frame
         self.frame_width = self.base_frame_width  # Current width for each frame
@@ -662,6 +30,7 @@ class TimelineView(QGraphicsView):
         
         self.playing = False  # Whether the mouse wheel is being used
         self.lmb_holding = False  # Whether the left mouse button is being held
+        self.dragging_playhead = False  # Whether the playhead is being dragged
         self.item_keys_to_hide: dict[int, 'BehaviorTrack'] = {} # A dict of key for the item to hide and the corresponding behavior track
         self.item_keys_to_render: dict[int, 'BehaviorTrack'] = {} # A dict of key for the item to render and the corresponding behavior track
         self.setSceneRect(0, 0, num_frames * self.frame_width, 60)  # Adjust the size as needed
@@ -670,8 +39,8 @@ class TimelineView(QGraphicsView):
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
-        self.setRenderHints(QtGui.QPainter.RenderHint.Antialiasing)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setRenderHints(QPainter.RenderHint.Antialiasing)
 
         # Create and add the playhead
         self.playhead = CustomPlayhead(10, 0, 60, self.frame_width, self)  
@@ -686,15 +55,14 @@ class TimelineView(QGraphicsView):
 
         ################ TEMP ################
         self.behavior_tracks: List[BehaviorTrack] = []
-        self.add_behavior_track("test")
-        self.add_behavior_track("2")
+        self.add_behavior_track("testing")
 
     def add_behavior_track(self, name: str):
         # add a new behavior track
         # get the y position of the new track
         y_pos = len(self.behavior_tracks) * self.track_height + self.track_y_start
         # create the new track
-        track = BehaviorTrack(name, y_pos+30, self.track_height, OnsetOffset, self)
+        track = BehaviorTrack(name, y_pos+30, self.track_height, 'OnsetOffset', self)
         self.behavior_tracks.append(track)
         self.scene().addItem(track)
         # resize the view so that the track we can see the track
@@ -712,6 +80,14 @@ class TimelineView(QGraphicsView):
                 x.setErrored()
         else:
             self.behavior_tracks[0].curr_behavior_item = None
+
+    def get_item_at_frame(self, frame: int):
+        # get the item at a specific frame
+        for track in self.behavior_tracks:
+            for onset, item in track.behavior_items.items():
+                if frame >= onset and frame <= item.offset:
+                    return item
+        return None
 
     def set_length(self, length: int):
         self.num_frames = length
@@ -781,7 +157,7 @@ class TimelineView(QGraphicsView):
         if self.behavior_tracks[0].curr_behavior_item is not None:
             x = self.behavior_tracks[0].check_for_overlap(self.behavior_tracks[0].curr_behavior_item.onset, frame)
             if x is None:
-                self.behavior_tracks[0].curr_behavior_item.offset = frame
+                self.behavior_tracks[0].curr_behavior_item.set_offset(frame)
             else:
                 x.setErrored()
         self.valueChanged.emit(frame)
@@ -872,6 +248,8 @@ class TimelineView(QGraphicsView):
             self.hover_line.show()
         # if we're in the top 50 pixels and holding the left mouse button and the playhead triangle is not being hovered over, move the playhead to the current mouse position
         if self.lmb_holding and event.pos().y() < 50:
+            self.dragging_playhead = True
+        if self.dragging_playhead:
             # get the current position of the mouse
             mouse_pos = self.mapToScene(event.pos()).x()
             # get the current position of the view
@@ -923,6 +301,7 @@ class TimelineView(QGraphicsView):
     def mouseReleaseEvent(self, event):
         self.scene().update()
         self.lmb_holding = False
+        self.dragging_playhead = False
         super().mouseReleaseEvent(event)
     
     def resizeEvent(self, event) -> None:
@@ -941,6 +320,10 @@ class TimelineView(QGraphicsView):
                 # scroll to the playhead
                 self.scroll_to_playhead()
 
+        # if the curr_behavior_item is not None, highlight the item
+        if self.behavior_tracks[0].curr_behavior_item is not None:
+            self.behavior_tracks[0].curr_behavior_item.highlight()
+            
         # get the range of visible frames in the view
         l,r = self.get_visable_frames()
         for track in self.behavior_tracks:
@@ -951,6 +334,8 @@ class TimelineView(QGraphicsView):
                     item.setPos(self.get_x_pos_of_frame(item.onset), self.mapToScene(0,track.y_position).y()+2)
                     item.setRect(0, 0, self.get_x_pos_of_frame(item.offset) - self.get_x_pos_of_frame(item.onset), track.track_height-4)
 
+                    if not item != self.behavior_tracks[0].curr_behavior_item:
+                        item.unhighlight()
             ################################ LOD RENDERING ################################
 
             # get the list of items whos onset and item.offset fall outside the visible range
@@ -984,25 +369,94 @@ class TimelineView(QGraphicsView):
     def update(self):
         if self.value:
             self.playhead.triangle.current_frame = self.value
+
         if self.behavior_tracks[0].curr_behavior_item is not None:
-            x = self.behavior_tracks[0].check_for_overlap(self.behavior_tracks[0].curr_behavior_item.onset, self.value)
-            if x is None:
-                self.behavior_tracks[0].curr_behavior_item.offset = self.value
+            it = self.behavior_tracks[0].curr_behavior_item
+            if self.behavior_tracks[0].overlap_with_item_check(it, onset=self.value):
+               it.setErrored()
             else:
-                x.setErrored()
+                self.behavior_tracks[0].curr_behavior_item.set_offset(self.value)
             
         self.move_playhead_to_frame(self.playhead.triangle.current_frame)
         super().update()
 
-class TimelineDockWidget(QtWidgets.QDockWidget):
+class TimelineDockWidget(QDockWidget):
     """This is the widget that contains the timeline, as a dockwidget for resizing. It cannot be closed or floated, only docked and resized"""
     
     def __init__(self, main_win: "MainWindow", parent=None):
             super(TimelineDockWidget, self).__init__(parent)
             self.setWindowTitle("Timeline")
-            self.timeline_view = TimelineView(100)
+            self.timeline_view = TimelineView(100, self)
             self.main_win = main_win
             self.setWidget(self.timeline_view)
 
     def set_length(self, length: int):
         self.timeline_view.set_length(length)
+
+    def move_to_last_onset_offset(self):
+        print("move to last onset offset")
+        curr_frame = self.timeline_view.get_playhead_frame()
+        curr_item = self.timeline_view.get_item_at_frame(curr_frame)
+        if curr_item is not None:
+            # if we're at the onset, move to the previous items onffset
+            if curr_frame == curr_item.onset:
+                # get the item before the current item
+                for onset, item in reversed(self.timeline_view.behavior_tracks[0].behavior_items.items()):
+                    if onset < curr_frame:
+                        self.timeline_view.move_playhead_to_frame(item.offset)
+                        break
+            elif curr_frame == curr_item.offset:
+                self.timeline_view.move_playhead_to_frame(curr_item.onset)
+            elif curr_frame > curr_item.onset and curr_frame < curr_item.offset:
+                self.timeline_view.move_playhead_to_frame(curr_item.onset)
+            else:
+                self.timeline_view.move_playhead_to_frame(curr_frame)
+        else:
+            # iterate through the items backwards until we find one that is before the current frame
+            for onset, item in reversed(self.timeline_view.behavior_tracks[0].behavior_items.items()):
+                if onset < curr_frame:
+                    self.timeline_view.move_playhead_to_frame(item.offset)
+                    break
+            else:
+                self.timeline_view.move_playhead_to_frame(curr_frame)
+
+        
+    def move_to_next_onset_offset(self):
+        print("move to next onset offset")
+        curr_frame = self.timeline_view.get_playhead_frame()
+        curr_item = self.timeline_view.get_item_at_frame(curr_frame)
+        if curr_item is not None:
+            # if we're at the onset, move to the previous items onset
+            if curr_frame == curr_item.onset:
+                self.timeline_view.move_playhead_to_frame(curr_item.offset)
+            elif curr_frame == curr_item.offset:
+                # get the item after the current item
+                for onset, item in self.timeline_view.behavior_tracks[0].behavior_items.items():
+                    if onset > curr_frame:
+                        self.timeline_view.move_playhead_to_frame(item.onset)
+                        break
+            elif curr_frame > curr_item.onset and curr_frame < curr_item.offset:
+                self.timeline_view.move_playhead_to_frame(curr_item.offset)
+            else:
+                self.timeline_view.move_playhead_to_frame(curr_frame)
+        else:
+            # iterate through the items backwards until we find one that is before the current frame
+            for onset, item in self.timeline_view.behavior_tracks[0].behavior_items.items():
+                if onset > curr_frame:
+                    self.timeline_view.move_playhead_to_frame(item.onset)
+                    break
+            else:
+                self.timeline_view.move_playhead_to_frame(curr_frame)
+
+
+    def move_to_last_timestamp(self):
+        pass
+    def move_to_next_timestamp(self):
+        pass
+    def select_current_timestamp(self):
+        # get the timestamp at the current frame of the playhead
+        # get the item at the current frame
+        self.timeline_view.behavior_tracks[0].curr_behavior_item = self.timeline_view.get_item_at_frame(self.timeline_view.get_playhead_frame())
+
+    def delete_selected_timestamp(self):
+        pass

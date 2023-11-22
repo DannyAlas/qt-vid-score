@@ -93,7 +93,8 @@ class KeyBindings(AbstSettings):
     help: str = "H"
     save_timestamp: str = "S"
     show_stats: str = "T"
-    undo_last_timestamp_save: str = "Ctrl+Z"
+    undo: str = "Ctrl+Z"
+    redo: str = "Ctrl+Shift+Z"
     toggle_play: str = "Space"
     seek_forward_small_frames: str = "D"
     seek_back_small_frames: str = "A"
@@ -111,9 +112,11 @@ class KeyBindings(AbstSettings):
     decrement_selected_timestamp_by_seek_medium: str = "shift+up"
     increment_selected_timestamp_by_seek_large: str = "ctrl+down"
     decrement_selected_timestamp_by_seek_large: str = "ctrl+up"
-    select_onset_timestamp: str = "left"
-    select_offset_timestamp: str = "right"
-    set_player_to_selected_timestamp: str = "enter"
+    move_to_last_onset_offset: str = "left"
+    move_to_next_onset_offset: str = "right"
+    move_to_last_timestamp: str = "Shift+left"
+    move_to_next_timestamp: str = "Shift+right"
+    select_current_timestamp: str = "Enter"
     delete_selected_timestamp: str = "delete"
 
     @staticmethod
@@ -123,6 +126,8 @@ class KeyBindings(AbstSettings):
             "help": "Display the help menu",
             "save_timestamp": "Save timestamp of current frame",
             "show_stats": "Display the current stats",
+            "undo": "Undo the last action",
+            "redo": "Redo the last undo",
             "undo_last_timestamp_save": "Undo last timestamp save",
             "toggle_play": "Pause/play",
             "seek_forward_small_frames": "Seek forward by seek_small frames",
@@ -141,10 +146,12 @@ class KeyBindings(AbstSettings):
             "decrement_selected_timestamp_by_seek_medium": "Decrement the selected timestamp by seek_timestamp_medium",
             "increment_selected_timestamp_by_seek_large": "Increment the selected timestamp by seek_timestamp_large",
             "decrement_selected_timestamp_by_seek_large": "Decrement the selected timestamp by seek_timestamp_large",
-            "select_onset_timestamp": "Select the onset timestamp",
-            "select_offset_timestamp": "Select the offset timestamp",
-            "set_player_to_selected_timestamp": "Set the player to the selected timestamp",
-            "delete_selected_timestamp": "Delete the selected timestamp",
+            "move_to_last_onset_offset" : "Move to the last onset/offset timestamp",
+            "move_to_next_onset_offset" : "Move to the next onset/offset timestamp",
+            "move_to_last_timestamp" : "Move to the last timestamp",
+            "move_to_next_timestamp" : "Move to the next timestamp",
+            "select_current_timestamp" : "Select the current timestamp",
+            "delete_selected_timestamp" : "Delete the selected timestamp",
         }
 
     def __setattr__(self, name: str, value: Any) -> None:

@@ -445,7 +445,6 @@ class TsWidget(QtWidgets.QWidget):
         return fts[frame_num]
 
     def update_table(self):
-        print(self.timestamps)
         # clear table
         self.table.clearContents()
 

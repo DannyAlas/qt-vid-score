@@ -20,6 +20,7 @@ from video_scoring.widgets.progress import ProgressBar, ProgressSignals
 from video_scoring.widgets.settings import SettingsDockWidget
 from video_scoring.widgets.timestamps import TimeStampsDockwidget
 from video_scoring.widgets.video.frontend import VideoPlayerDockWidget
+from video_scoring.command_stack import Command, CommandStack
 
 log = logging.getLogger()
 
@@ -31,7 +32,6 @@ def logging_exept_hook(exctype, value, trace):
 
 sys.excepthook = logging_exept_hook
 
-
 class MainWindow(QMainWindow):
     loaded = Signal()
     def __init__(self, logging_level=logging.INFO):
@@ -39,9 +39,10 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Video Scoring Thing")
         self.qt_settings = QtCore.QSettings("Root Lab", "Video Scoring")
         self.project_settings = ProjectSettings()
-        self.icons_dir = os.path.join(os.path.dirname(__file__), "Images")
+        self.icons_dir = os.path.join(os.path.dirname(__file__), "resources")
         self.set_icons()
         self.logging_level = logging_level
+        self.command_stack = CommandStack()
         self.create_main_widget()
         self.create_status_bar()
         self.load_settings_file()
@@ -50,7 +51,7 @@ class MainWindow(QMainWindow):
         self.init_key_shortcuts()
         self.loaded.emit()
 
-    def _get_icon(self, icon_name):
+    def _get_icon(self, icon_name, as_string=False):
         # are we in dark mode?
         if self.project_settings.theme == "dark":
             icon_path = os.path.join(self.icons_dir, "dark", icon_name)
@@ -58,7 +59,10 @@ class MainWindow(QMainWindow):
             icon_path = os.path.join(self.icons_dir, icon_name)
         else:
             raise Exception(f"Theme {self.project_settings.theme} not recognized")
-        return QtGui.QIcon(icon_path)
+        if not as_string:
+            return QtGui.QIcon(icon_path)
+        else:
+            return icon_path.replace("\\", "/")
 
     def set_icons(self):
         self.setWindowIcon(QtGui.QIcon(os.path.join(self.icons_dir, "icon.png")))
@@ -170,6 +174,7 @@ class MainWindow(QMainWindow):
             )
             self.save_settings()
             self.video_player_dw.start(file)
+            self.settings_dock_widget.refresh()
 
     def import_timestamps(self):
         pass
@@ -187,6 +192,7 @@ class MainWindow(QMainWindow):
                 self.tdt_loader.moveToThread(self.tdt_loader_thread)
                 self.tdt_loader_thread.started.connect(self.tdt_loader.run)
                 self.tdt_loader.signals.complete.connect(self.tdt_loader_thread.quit)
+                self.tdt_loader.signals.complete.connect(self.settings_dock_widget.refresh)
                 self.tdt_loader.signals.complete.connect(
                     lambda: self.load_block(self.tdt_loader)
                 )
@@ -196,6 +202,7 @@ class MainWindow(QMainWindow):
                     f"Importing TDT Tank {file_dialog.selectedFiles()[0]}",
                     "Imported TDT Tank",
                 )
+                self.settings_dock_widget.refresh()
             except:
                 self.update_status(
                     f"Failed to import TDT Tank {file_dialog.selectedFiles()[0]}"
@@ -223,10 +230,10 @@ class MainWindow(QMainWindow):
         pass
 
     def undo(self):
-        pass
+        self.command_stack.undo()
 
     def redo(self):
-        pass
+        self.command_stack.redo()
 
     def init_doc_widgets(self):
         self.open_settings_widget()
@@ -314,7 +321,6 @@ class MainWindow(QMainWindow):
         # update all widgets
         for widget in app.allWidgets():
             try:
-                widget.setStyleSheet("")
                 widget.setStyleSheet(qdarktheme.load_stylesheet(theme))
             except:
                 pass
@@ -338,10 +344,34 @@ class MainWindow(QMainWindow):
                     f"Loaded the latest project settings for {self.project_settings.video_file_name}"
                 )
             except Exception as e:
+                desktop = QtWidgets.QApplication.screens()[0].geometry()
+                print(desktop.width(), desktop.height())
+                self.project_settings.window_size = (
+                    desktop.width() / 2,
+                    desktop.height() / 2,
+                )
+                self.project_settings.window_position = (
+                    desktop.width() / 4,
+                    desktop.height() / 4,
+                )
                 self.update_status(
-                    "Failed to load the latest project settings",
+                    "Failed to load the latest project settings" + str(e),
                     log_level=logging.ERROR,
                 )
+        else:
+            # resize ourselves to half the screen and center ourselves
+            desktop = QtWidgets.QApplication.screens()[0].geometry()
+            print(desktop.width(), desktop.height())
+            self.project_settings.window_size = (
+                desktop.width() / 2,
+                desktop.height() / 2,
+            )
+            self.project_settings.window_position = (
+                desktop.width() / 4,
+                desktop.height() / 4,
+            )
+            self.update_status("No latest project settings found", log_level=logging.INFO)
+
         self.update_log_file()
         self.init_logging()
         self.load_settings()
@@ -368,14 +398,21 @@ class MainWindow(QMainWindow):
             )
             self.load_settings_file()
 
-    def open_project(self):
+    def open_project(self, location: Optional[str] = None):
         # file dialog to select project location
         file_dialog = QtWidgets.QFileDialog()
         file_dialog.setFileMode(QtWidgets.QFileDialog.FileMode.AnyFile)
         file_dialog.setNameFilter("JSON (*.json)")
         file_dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptMode.AcceptOpen)
         file_dialog.setDefaultSuffix("json")
-        file_dialog.setDirectory(self.project_settings.settings_file_location)
+        # set cwd to the current project location
+        if self.project_settings.settings_file_location is not None:
+            file_dialog.setDirectory(
+                os.path.dirname(self.project_settings.settings_file_location)
+                if location is None
+                else os.path.dirname(location)
+            )
+        
         if file_dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
             # try save current project
             self.save_settings()
@@ -399,11 +436,11 @@ class MainWindow(QMainWindow):
 
     def load_settings(self):
         self.resize(
-            self.project_settings.window_size[0], self.project_settings.window_size[1]
+            int(self.project_settings.window_size[0]), int(self.project_settings.window_size[1])
         )
         self.move(
-            self.project_settings.window_position[0],
-            self.project_settings.window_position[1],
+            int(self.project_settings.window_position[0]),
+            int(self.project_settings.window_position[1]),
         )
         self.change_theme(self.project_settings.theme)
 
