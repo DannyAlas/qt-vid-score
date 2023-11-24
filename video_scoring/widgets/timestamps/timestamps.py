@@ -130,6 +130,7 @@ class customTableWidget(QtWidgets.QTableWidget):
         self.setSelectionBehavior(
             QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows
         )
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
 
     def selectionChanged(self, selected, deselected):
         """When a row is selected, add a border around it"""
@@ -182,6 +183,7 @@ class customTableWidget(QtWidgets.QTableWidget):
 class TsWidget(QtWidgets.QWidget):
     def __init__(self, main_win: "MainWindow"):
         super().__init__()
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
         self.main_win = main_win
         self.timestamps: Dict[float, Dict[str, Any]] = {}
         self.show_tpye: Literal["frame", "time"] = "frame"
@@ -408,18 +410,18 @@ class TsWidget(QtWidgets.QWidget):
         # update table
         self.update_table()
 
-    def delete_selected_timestamp(self):
-        # get selected row
-        selected_row = self.table.currentRow()
+    # def delete_selected_timestamp(self):
+    #     # get selected row
+    #     selected_row = self.table.currentRow()
 
-        # get onset time from selected row
+    #     # get onset time from selected row
         
-        entry = self.get_entry_from_onset_text(self.table.item(selected_row, 0).text())
-        # delete entry
-        del entry
+    #     entry = self.get_entry_from_onset_text(self.table.item(selected_row, 0).text())
+    #     # delete entry
+    #     del entry
 
-        # update table
-        self.update_table()
+    #     # update table
+    #     self.update_table()
 
     def get_entry_from_onset_text(self, onset_time: str):
         if self.show_tpye == "frame":
@@ -490,6 +492,7 @@ class TimeStampsDockwidget(QtWidgets.QDockWidget):
     def __init__(self, main_win: "MainWindow", parent=None):
         super().__init__(parent)
         self.setWindowTitle("Time Stamps")
+        self.setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
         self.main_win = main_win
         self.main_widget = QtWidgets.QWidget()
         self.setWidget(self.main_widget)
@@ -535,9 +538,6 @@ class TimeStampsDockwidget(QtWidgets.QDockWidget):
                 # convert to time
                 entry["offset"] = self.frame_to_timestamp(entry["offset"])
 
-
-        
-
     def add_vid_time_stamp(self, frame_num):
         # frame_num = self.main_win.get_frame_num()
         # if frame_num is None:
@@ -545,8 +545,8 @@ class TimeStampsDockwidget(QtWidgets.QDockWidget):
 
         self.table_widget.add_timestamp(frame_num)
 
-    def delete_selected_timestamp(self):
-        self.table_widget.delete_selected_timestamp()
+    # def delete_selected_timestamp(self):
+    #     self.table_widget.delete_selected_timestamp()
 
     def set_player_to_selected_timestamp(self):
         # get selected row

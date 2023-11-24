@@ -367,14 +367,13 @@ class TDTData:
         return frame_ts
 
 
-class ScoringData:
+class ScoringData(AbstSettings):
     """Represents the data associated with a scoring session"""
-
     uid: str = ""
     video_file_location: str = ""
     video_file_name: str = ""
     timestamp_file_location: str = ""
-    tdt_data: str = ""
+    timestamp_data: dict = {}
 
 
 class ProjectSettings(AbstSettings):
@@ -390,6 +389,7 @@ class ProjectSettings(AbstSettings):
     key_bindings: KeyBindings = KeyBindings()
     window_size: Tuple[int, int] = (1280, 720)
     window_position: Tuple[int, int] = (0, 0)
+    scoring_data: ScoringData = ScoringData()
 
     def load(self, file_location):
         with open(file_location, "r") as f:
@@ -405,6 +405,7 @@ class ProjectSettings(AbstSettings):
             self.key_bindings = KeyBindings(**project_settings["key_bindings"])
             self.window_size = project_settings["window_size"]
             self.window_position = project_settings["window_position"]
+            self.scoring_data = ScoringData(**project_settings["scoring_data"])
 
     def save(self, file_location=None):
         if file_location is None:
@@ -429,4 +430,5 @@ class ProjectSettings(AbstSettings):
             "joke_type": "I hope this is self explanatory",
             "window_size": "Size of the main window",
             "window_position": "Position of the main window",
+            "scoring_data": "Data associated with the scoring session",
         }

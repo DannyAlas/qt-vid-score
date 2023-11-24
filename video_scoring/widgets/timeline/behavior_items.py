@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from qtpy.QtCore import QPointF
     from video_scoring import MainWindow
 
-class OnsetOffsetCommand(Command):
+class OnsetOffsetMoveCommand(Command):
     """
     Implements a command for undo/redo functionality of onset/offset changes. The command will store the onset and offset for the undo and redo actions.
 
@@ -73,7 +73,7 @@ class OnsetOffsetItem(QGraphicsRectItem):
         self.edge_grab_boundary = 8
         self.extend_edge_grab_boundary = 8
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
         self.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
         self.setAcceptHoverEvents(True)
@@ -81,7 +81,7 @@ class OnsetOffsetItem(QGraphicsRectItem):
         # set geometry
         self.base_color = QColor("#6aa1f5")
         self.setBrush(QBrush(self.base_color))
-        self.highlight_color = QColor("#9cc5f8")
+        self.highlight_color = QColor("#8cbdfa")
 
     @property
     def onset(self):
@@ -96,98 +96,6 @@ class OnsetOffsetItem(QGraphicsRectItem):
         WARNING DO NOT MODIFY THIS DIRECTLY. Use the `set_offset` method to update this value
         """
         return self._offset
-
-    def set_onset(self, new_onset:int):
-        """
-        Set the onset of the behavior item. This will manage syncing the onset with the parent track
-
-        Parameters
-        ----------
-        new_onset : int
-            The new onset value
-        """
-        self.parent.update_behavior_onset(self, new_onset)
-        self._onset = new_onset
-
-    def set_offset(self, new_offset:int):
-        """
-        Set the offset of the behavior item.
-
-        Parameters
-        ----------
-        new_offset : int
-            The new offset value
-        """
-        self._offset = new_offset
-
-    def set_onset_offset(self, new_onset:int, new_offset:int):
-        """
-        Set the onset and offset of the behavior item.
-
-        Parameters
-        ----------
-        new_onset : int
-            The new onset value
-        new_offset : int
-            The new offset value
-        """
-        self.set_onset(new_onset)
-        self.set_offset(new_offset)
-
-    def mousePressEvent(self, event):
-        # Handle mouse press events
-        self.pressed = True
-        self.last_mouse_pos = event.pos()
-        cur_onset = self.onset
-        cur_offset = self.offset
-        self.cur_move_command = OnsetOffsetCommand(cur_onset, cur_offset, cur_onset, cur_offset, self)
-        # if its we're smaller than 10 pixels, determine which edge we're closest to by dividing the width by 2
-        if self.rect().width() < 10:
-            if event.pos().x() <= self.rect().width() / 2:
-                self.left_edge_grabbed = True
-                self.right_edge_grabbed = False
-            else:
-                self.left_edge_grabbed = False
-                self.right_edge_grabbed = True
-        elif event.pos().x() <= self.edge_grab_boundary + self.extend_edge_grab_boundary:
-            self.left_edge_grabbed = True
-            self.right_edge_grabbed = False
-        elif event.pos().x() >= self.rect().width() - self.edge_grab_boundary - self.extend_edge_grab_boundary:
-            self.left_edge_grabbed = False
-            self.right_edge_grabbed = True
-        else:
-            self.left_edge_grabbed = False
-            self.right_edge_grabbed = False
-
-        super().mousePressEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        self.pressed = False
-        if self.cur_move_command.undo_offset != self.onset or self.cur_move_command.undo_offset != self.offset:
-            self.cur_move_command.redo_onset = self.onset
-            self.cur_move_command.redo_offset = self.offset
-            self.parent.parent.parent.main_win.command_stack.add_command(self.cur_move_command)
-        super().mouseReleaseEvent(event)
-
-    def setSelectedHighlight(self, selected: bool) -> None:
-        if selected:
-            self.setBrush(QBrush(QColor("#ff0000")))
-        else:
-            self.setBrush(QBrush(self.base_color))
-
-    def highlight(self):
-        self.setBrush(QBrush(self.highlight_color))
-
-    def unhighlight(self):
-        self.setBrush(QBrush(self.base_color))
-
-    def errorHighlight(self):
-        self.setBrush(QBrush(QColor("#ff0000")))
-
-    def setErrored(self):
-        # will set the error highlight for a short time
-        self.errorHighlight()
-        QTimer.singleShot(300, self.unhighlight)
 
     def _drag_left_edge(self, event: QGraphicsSceneMouseEvent) -> None:
         scene_x: QPointF  = self.mapToScene(event.pos() - self.last_mouse_pos).x()
@@ -212,7 +120,6 @@ class OnsetOffsetItem(QGraphicsRectItem):
         # Set the new position and size of the rectangle, and update the n_onset frame
         self.setRect(snapped_x_local, self.rect().top(), new_width, self.rect().height())
         n_onset = self.view.get_frame_of_x_pos(self.mapToScene(self.rect().left(),0).x())
-        print("n_onset: ", n_onset)
 
         # if we overlap with another item, revert the change
         if self.parent.overlap_with_item_check(self, onset=n_onset):
@@ -271,6 +178,93 @@ class OnsetOffsetItem(QGraphicsRectItem):
             self.set_onset(new_onset=n_onset)
             self.set_offset(new_offset=n_offset)
 
+    def set_onset(self, new_onset:int):
+        """
+        Set the onset of the behavior item. This will manage syncing the onset with the parent track
+
+        Parameters
+        ----------
+        new_onset : int
+            The new onset value
+        """
+        self.parent.update_behavior_onset(self, new_onset)
+        self._onset = new_onset
+
+    def set_offset(self, new_offset:int):
+        """
+        Set the offset of the behavior item.
+
+        Parameters
+        ----------
+        new_offset : int
+            The new offset value
+        """
+        self._offset = new_offset
+
+    def set_onset_offset(self, new_onset:int, new_offset:int):
+        """
+        Set the onset and offset of the behavior item.
+
+        Parameters
+        ----------
+        new_onset : int
+            The new onset value
+        new_offset : int
+            The new offset value
+        """
+        self.set_onset(new_onset)
+        self.set_offset(new_offset)
+
+    def highlight(self):
+        self.setBrush(QBrush(self.highlight_color))
+
+    def unhighlight(self):
+        self.setBrush(QBrush(self.base_color))
+
+    def errorHighlight(self):
+        self.setBrush(QBrush(QColor("#ff0000")))
+
+    def setErrored(self):
+        # will set the error highlight for a short time
+        self.errorHighlight()
+        QTimer.singleShot(300, self.unhighlight)
+
+    def mousePressEvent(self, event):
+        # Handle mouse press events
+        self.pressed = True
+        self.setSelected(True)
+        self.last_mouse_pos = event.pos()
+        cur_onset = self.onset
+        cur_offset = self.offset
+        self.cur_move_command = OnsetOffsetMoveCommand(cur_onset, cur_offset, cur_onset, cur_offset, self)
+        # if its we're smaller than 10 pixels, determine which edge we're closest to by dividing the width by 2
+        if self.rect().width() < 10:
+            if event.pos().x() <= self.rect().width() / 2:
+                self.left_edge_grabbed = True
+                self.right_edge_grabbed = False
+            else:
+                self.left_edge_grabbed = False
+                self.right_edge_grabbed = True
+        elif event.pos().x() <= self.edge_grab_boundary + self.extend_edge_grab_boundary:
+            self.left_edge_grabbed = True
+            self.right_edge_grabbed = False
+        elif event.pos().x() >= self.rect().width() - self.edge_grab_boundary - self.extend_edge_grab_boundary:
+            self.left_edge_grabbed = False
+            self.right_edge_grabbed = True
+        else:
+            self.left_edge_grabbed = False
+            self.right_edge_grabbed = False
+
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self.pressed = False
+        if self.cur_move_command.undo_offset != self.onset or self.cur_move_command.undo_offset != self.offset:
+            self.cur_move_command.redo_onset = self.onset
+            self.cur_move_command.redo_offset = self.offset
+            self.parent.parent.parent.main_win.command_stack.add_command(self.cur_move_command)
+        super().mouseReleaseEvent(event)
+
     def mouseMoveEvent(self, event):
         if self.pressed:
             # set our z value to be on top of everything except the playhead
@@ -292,7 +286,6 @@ class OnsetOffsetItem(QGraphicsRectItem):
         super().hoverEnterEvent(event)
 
     def hoverLeaveEvent(self, event):
-        # restore the color of the playhead
         self.unhighlight()
         self.setCursor(Qt.CursorShape.ArrowCursor)
         self.hovered = False

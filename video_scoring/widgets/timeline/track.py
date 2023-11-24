@@ -31,6 +31,12 @@ class BehaviorTrack(QGraphicsRectItem):
         # if offset is none we're we will be changing the offset based on the playheads position
         self.curr_behavior_item  = OnsetOffsetItem(onset, onset+1, self.parent, self)
         self.behavior_items[onset] = self.curr_behavior_item
+        return self.curr_behavior_item
+
+    def remove_behavior(self, item: 'OnsetOffsetItem'):
+        # remove the given behavior item
+        self.behavior_items.pop(item.onset)
+        self.parent.scene().removeItem(item)
 
     def check_for_overlap(self, onset, offset=None):
         # check if the provided item overlaps with any existing items

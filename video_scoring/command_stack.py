@@ -41,8 +41,8 @@ class CommandStack:
 
     def undo(self):
         if self.index >= 0:
-            self.index -= 1
             self.stack[self.index].undo()
+            self.index -= 1
 
     def redo(self):
         if self.index < len(self.stack) - 1:
@@ -54,7 +54,7 @@ class CommandStack:
         self.stack = self.stack[:self.index + 1]
         self.stack.append(command)
         self.index += 1
-        print(len(self.stack))
+
         if len(self.stack) > 1000:
             self.stack = self.stack[1:]
             self.index -= 1

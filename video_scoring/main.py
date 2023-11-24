@@ -57,6 +57,8 @@ class MainWindow(QMainWindow):
             icon_path = os.path.join(self.icons_dir, "dark", icon_name)
         elif self.project_settings.theme == "light":
             icon_path = os.path.join(self.icons_dir, icon_name)
+        elif self.project_settings.theme == "auto":
+            icon_path = os.path.join(self.icons_dir, "dark", icon_name)
         else:
             raise Exception(f"Theme {self.project_settings.theme} not recognized")
         if not as_string:
@@ -318,12 +320,12 @@ class MainWindow(QMainWindow):
         qdarktheme.setup_theme(theme)
         # get the current app
         app = QtWidgets.QApplication.instance()
-        # update all widgets
+        # deep search for all widgets
         for widget in app.allWidgets():
-            try:
-                widget.setStyleSheet(qdarktheme.load_stylesheet(theme))
-            except:
-                pass
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+            widget.update()
+            widget.setStyleSheet(qdarktheme.load_stylesheet(theme=theme))
 
     ############################# TimeStamp Actions #############################
 
@@ -443,6 +445,11 @@ class MainWindow(QMainWindow):
             int(self.project_settings.window_position[1]),
         )
         self.change_theme(self.project_settings.theme)
+        self.loaded.connect(
+            lambda: self.timeline_dw.load_timestamps(
+                self.project_settings.scoring_data.timestamp_data
+            )
+        )
 
     def save_settings(self, file_location=None):
         self.qt_settings.setValue(
@@ -450,6 +457,7 @@ class MainWindow(QMainWindow):
         )
         self.project_settings.window_size = (self.width(), self.height())
         self.project_settings.window_position = (self.x(), self.y())
+        self.project_settings.scoring_data.timestamp_data = self.timeline_dw.save_timestamps()
         self.update_log_file()
         self.project_settings.save(file_location)
 

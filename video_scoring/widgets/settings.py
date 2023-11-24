@@ -1,12 +1,11 @@
-import re
 import typing
 from typing import TYPE_CHECKING, Union
-
+from qtpy.QtCore import Qt
 import qdarktheme
 from qtpy import QtCore, QtGui, QtWidgets
 
 from video_scoring.settings import (AbstSettings, KeyBindings, Playback,
-                                    ProjectSettings, Scoring)
+                                    ProjectSettings, Scoring, ScoringData)
 
 if TYPE_CHECKING:
     from main import MainWindow
@@ -16,6 +15,7 @@ class SettingsDockWidget(QtWidgets.QDockWidget):
     def __init__(self, main_win: "MainWindow", parent=None):
         super(SettingsDockWidget, self).__init__(parent)
         self.setWindowTitle("Settings")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.main_win = main_win
         # there will be tabs for each of the settings
         self.tab_widget = QtWidgets.QTabWidget()
@@ -60,6 +60,8 @@ class SettingsDockWidget(QtWidgets.QDockWidget):
         tab.setLayout(tab_layout)
         # create a scroll area for the widget
         scroll_area = QtWidgets.QScrollArea()
+        scroll_area.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        scroll_area.setStyleSheet("background-color: rgb(24,24,25);")
         scroll_area.setWidgetResizable(True)
         scroll_area.setWidget(tab)
 
@@ -168,6 +170,7 @@ class SettingsDockWidget(QtWidgets.QDockWidget):
         tab.setLayout(tab_layout)
         # create a scroll area for the widget
         scroll_area = QtWidgets.QScrollArea()
+        scroll_area.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         scroll_area.setWidgetResizable(True)
         scroll_area.setWidget(tab)
         tab_widget.addTab(scroll_area, pyd_model.__class__.__name__)
@@ -351,7 +354,7 @@ class SettingsDockWidget(QtWidgets.QDockWidget):
         self.main_win.register_shortcut(widget.objectName(), value.toString())
 
     def get_help_text(
-        self, pyd_model: Union[Scoring, Playback, ProjectSettings], field_name: str
+        self, pyd_model: Union[Scoring, Playback, ProjectSettings, ScoringData], field_name: str
     ):
         help_text = str(pyd_model.help_text()[field_name])
         help_text = help_text.split(" ")

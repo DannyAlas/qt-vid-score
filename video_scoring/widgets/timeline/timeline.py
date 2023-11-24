@@ -1,14 +1,50 @@
 
+import re
 from qtpy.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsLineItem, QFrame, QDockWidget
 from qtpy.QtCore import Qt, QRectF, Signal
 from qtpy.QtGui import  QPen, QPainter
 from typing import TYPE_CHECKING, List 
 from video_scoring.widgets.timeline.track import BehaviorTrack
 from video_scoring.widgets.timeline.playhead import CustomPlayhead
-
+from video_scoring.command_stack import Command
 if TYPE_CHECKING:
     from video_scoring import MainWindow
+    from video_scoring.widgets.timeline.behavior_items import OnsetOffsetItem
 
+
+class AddBehaviorCommand(Command):
+    def __init__(self, timeline_view: 'TimelineView', track: 'BehaviorTrack', item: 'OnsetOffsetItem'):
+        super().__init__()
+        self.timeline_view = timeline_view
+        self.track = track
+        self.item = item
+
+    def redo(self):
+        self.track.behavior_items[self.item.onset] = self.item
+        self.timeline_view.scene().addItem(self.item)
+        self.timeline_view.scene().update()
+
+    def undo(self):
+        self.track.behavior_items.pop(self.item.onset)
+        self.timeline_view.scene().removeItem(self.item)
+        self.timeline_view.scene().update()
+
+class DeleteBehaviorCommand(Command):
+    def __init__(self, timeline_view: 'TimelineView', track: 'BehaviorTrack', item: 'OnsetOffsetItem'):
+        super().__init__()
+        self.timeline_view = timeline_view
+        self.track = track
+        self.item = item
+
+    def redo(self):
+        self.track.behavior_items.pop(self.item.onset)
+        self.timeline_view.scene().removeItem(self.item)
+        self.timeline_view.scene().update()
+
+    def undo(self):
+        self.track.behavior_items[self.item.onset] = self.item
+        self.timeline_view.scene().addItem(self.item)
+        self.timeline_view.scene().update()
 
 class TimelineView(QGraphicsView):
     valueChanged = Signal(int)
@@ -17,6 +53,7 @@ class TimelineView(QGraphicsView):
         super().__init__()
         # Set up the scene
         self.setScene(QGraphicsScene(self))
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setMouseTracking(True)
         self.parent = parent
         self.value = 0 # Current frame
@@ -74,8 +111,10 @@ class TimelineView(QGraphicsView):
         if self.behavior_tracks[0].curr_behavior_item is None:
             x = self.behavior_tracks[0].check_for_overlap(onset)
             if x is None:
-                self.behavior_tracks[0].add_behavior(onset)
+                i = self.behavior_tracks[0].add_behavior(onset)
+                self.parent.main_win.command_stack.add_command(AddBehaviorCommand(self, self.behavior_tracks[0], i))
                 self.scene().update()
+                
             else:
                 x.setErrored()
         else:
@@ -389,12 +428,12 @@ class TimelineDockWidget(QDockWidget):
             self.timeline_view = TimelineView(100, self)
             self.main_win = main_win
             self.setWidget(self.timeline_view)
+            self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
     def set_length(self, length: int):
         self.timeline_view.set_length(length)
 
     def move_to_last_onset_offset(self):
-        print("move to last onset offset")
         curr_frame = self.timeline_view.get_playhead_frame()
         curr_item = self.timeline_view.get_item_at_frame(curr_frame)
         if curr_item is not None:
@@ -422,7 +461,6 @@ class TimelineDockWidget(QDockWidget):
 
         
     def move_to_next_onset_offset(self):
-        print("move to next onset offset")
         curr_frame = self.timeline_view.get_playhead_frame()
         curr_item = self.timeline_view.get_item_at_frame(curr_frame)
         if curr_item is not None:
@@ -459,4 +497,32 @@ class TimelineDockWidget(QDockWidget):
         self.timeline_view.behavior_tracks[0].curr_behavior_item = self.timeline_view.get_item_at_frame(self.timeline_view.get_playhead_frame())
 
     def delete_selected_timestamp(self):
-        pass
+        # delete the selected timestamp
+        for item in self.timeline_view.behavior_tracks[0].behavior_items.values():
+            if item.isSelected():
+                self.main_win.command_stack.add_command(DeleteBehaviorCommand(self.timeline_view, self.timeline_view.behavior_tracks[0], self.timeline_view.behavior_tracks[0].curr_behavior_item))
+                self.timeline_view.behavior_tracks[0].remove_behavior(item)
+                self.timeline_view.behavior_tracks[0].curr_behavior_item = None
+                self.timeline_view.scene().update()
+
+    def save_timestamps(self):
+
+        # behavior_items.keys = onset
+        # behavior_items.values = item
+        # offset = item.offset
+
+        # get a dict of the behavior items
+        items = {}
+        for onset, item in self.timeline_view.behavior_tracks[0].behavior_items.items():
+            items[onset] = item.offset
+
+        return items
+
+    def load_timestamps(self, timestamps: dict):
+        # load the timestamps into the timeline
+        for onset, offset in timestamps.items():
+            if self.timeline_view.behavior_tracks[0].check_for_overlap(int(onset), int(offset)) is None:
+                i = self.timeline_view.behavior_tracks[0].add_behavior(int(onset))
+                i.set_offset(int(offset))
+                self.timeline_view.behavior_tracks[0].curr_behavior_item = None
+                self.timeline_view.scene().update()
