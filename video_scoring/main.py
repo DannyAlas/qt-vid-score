@@ -7,7 +7,6 @@ import os
 import sys
 import traceback as tb
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
-
 import qdarktheme
 import requests
 from qtpy import QtCore, QtGui, QtNetwork, QtWidgets
@@ -21,7 +20,7 @@ from video_scoring.widgets.settings import SettingsDockWidget
 from video_scoring.widgets.timestamps import TimeStampsDockwidget
 from video_scoring.widgets.video.frontend import VideoPlayerDockWidget
 from video_scoring.command_stack import Command, CommandStack
-
+from video_scoring.widgets.update import UpdateCheck, UpdateDialog
 log = logging.getLogger()
 
 
@@ -43,6 +42,7 @@ class MainWindow(QMainWindow):
         self.set_icons()
         self.logging_level = logging_level
         self.command_stack = CommandStack()
+        self.check_for_update()
         self.create_main_widget()
         self.create_status_bar()
         self.load_settings_file()
@@ -51,14 +51,30 @@ class MainWindow(QMainWindow):
         self.init_key_shortcuts()
         self.loaded.emit()
 
+    def check_for_update(self):
+        self.update_thread = QThread()
+        self.update_check = UpdateCheck()
+        self.update_check.moveToThread(self.update_thread)
+        self.update_thread.started.connect(self.update_check.run)
+        self.update_check.update_available.connect(self.update_available)
+        self.update_check.update_error.connect(lambda e: self.update_status(e, logging.ERROR))
+        self.update_check.no_update.connect(lambda: self.update_status(f"You are running the latest version! ({__version__})"))
+        self.update_thread.finished.connect(self.update_thread.quit)
+        self.update_thread.start()
+
+    def update_available(self, data: Dict[str, Any]):
+        self.update_dialog = UpdateDialog(data)
+        self.update_dialog.exec()
+
+
     def _get_icon(self, icon_name, as_string=False):
-        # are we in dark mode?
         if self.project_settings.theme == "dark":
             icon_path = os.path.join(self.icons_dir, "dark", icon_name)
         elif self.project_settings.theme == "light":
             icon_path = os.path.join(self.icons_dir, icon_name)
         elif self.project_settings.theme == "auto":
             icon_path = os.path.join(self.icons_dir, "dark", icon_name)
+
         else:
             raise Exception(f"Theme {self.project_settings.theme} not recognized")
         if not as_string:
@@ -506,48 +522,49 @@ class MainWindow(QMainWindow):
         help_url = QUrl("https://danielalas.com")
         QtGui.QDesktopServices.openUrl(help_url)
 
-    class JokeSignals(QtCore.QObject):
-        complete = Signal(dict)
-        finished = Signal()
-
-    class JokeThread(QtCore.QObject):
-        def __init__(self, type: Literal["programming", "general"] = "programming"):
-            super().__init__()
-            self.type = type
-            self.signals = MainWindow.JokeSignals()
-
-        def get_joke(self, type: Literal["programming", "dad"] = "programming"):
-            if type == "programming":
-                url = r"https://backend-omega-seven.vercel.app/api/getjoke"
-                response = requests.get(url)
-                if response.status_code == 200:
-                    res = json.loads(response.content)[0]
-                    return res
-                else:
-                    return {
-                        "question": "What's the best thing about a Boolean?",
-                        "punchline": "Even if you're wrong, you're only off by a bit.",
-                    }
-            elif type == "dad":
-                url = r"https://icanhazdadjoke.com/"
-                response = requests.get(url, headers={"Accept": "text/plain"})
-                if response.status_code == 200:
-                    return {
-                        "question": "",
-                        "punchline": response.content.decode("utf-8"),
-                    }
-                else:
-                    return {
-                        "question": "What's the best thing about a Boolean?",
-                        "punchline": "Even if you're wrong, you're only off by a bit.",
-                    }
-
-        def run(self):
-            joke = self.get_joke(self.type)
-            self.signals.complete.emit(joke)
-            self.signals.finished.emit()
-
     def about(self):
+    
+        class JokeSignals(QtCore.QObject):
+            complete = Signal(dict)
+            finished = Signal()
+
+        class JokeThread(QtCore.QObject):
+            def __init__(self, type: Literal["programming", "general"] = "programming"):
+                super().__init__()
+                self.type = type
+                self.signals = JokeSignals()
+
+            def get_joke(self, type: Literal["programming", "dad"] = "programming"):
+                if type == "programming":
+                    url = r"https://backend-omega-seven.vercel.app/api/getjoke"
+                    response = requests.get(url)
+                    if response.status_code == 200:
+                        res = json.loads(response.content)[0]
+                        return res
+                    else:
+                        return {
+                            "question": "What's the best thing about a Boolean?",
+                            "punchline": "Even if you're wrong, you're only off by a bit.",
+                        }
+                elif type == "dad":
+                    url = r"https://icanhazdadjoke.com/"
+                    response = requests.get(url, headers={"Accept": "text/plain"})
+                    if response.status_code == 200:
+                        return {
+                            "question": "",
+                            "punchline": response.content.decode("utf-8"),
+                        }
+                    else:
+                        return {
+                            "question": "What's the best thing about a Boolean?",
+                            "punchline": "Even if you're wrong, you're only off by a bit.",
+                        }
+
+            def run(self):
+                joke = self.get_joke(self.type)
+                self.signals.complete.emit(joke)
+                self.signals.finished.emit()
+
         about_dialog = QtWidgets.QMessageBox()
         about_dialog.setWindowTitle("About")
         # set custom icon scaled
@@ -558,7 +575,7 @@ class MainWindow(QMainWindow):
             QtGui.QIcon(os.path.join(self.icons_dir, "icon.png"))
         )
         joke_thread = QThread()
-        joke = MainWindow.JokeThread(self.project_settings.joke_type)
+        joke = JokeThread(self.project_settings.joke_type)
         joke.moveToThread(joke_thread)
         about_dialog.setText(
             f"""
