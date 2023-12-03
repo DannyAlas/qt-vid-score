@@ -146,12 +146,12 @@ class KeyBindings(AbstSettings):
             "decrement_selected_timestamp_by_seek_medium": "Decrement the selected timestamp by seek_timestamp_medium",
             "increment_selected_timestamp_by_seek_large": "Increment the selected timestamp by seek_timestamp_large",
             "decrement_selected_timestamp_by_seek_large": "Decrement the selected timestamp by seek_timestamp_large",
-            "move_to_last_onset_offset" : "Move to the last onset/offset timestamp",
-            "move_to_next_onset_offset" : "Move to the next onset/offset timestamp",
-            "move_to_last_timestamp" : "Move to the last timestamp",
-            "move_to_next_timestamp" : "Move to the next timestamp",
-            "select_current_timestamp" : "Select the current timestamp",
-            "delete_selected_timestamp" : "Delete the selected timestamp",
+            "move_to_last_onset_offset": "Move to the last onset/offset timestamp",
+            "move_to_next_onset_offset": "Move to the next onset/offset timestamp",
+            "move_to_last_timestamp": "Move to the last timestamp",
+            "move_to_next_timestamp": "Move to the next timestamp",
+            "select_current_timestamp": "Select the current timestamp",
+            "delete_selected_timestamp": "Delete the selected timestamp",
         }
 
     def __setattr__(self, name: str, value: Any) -> None:
@@ -369,6 +369,7 @@ class TDTData:
 
 class ScoringData(AbstSettings):
     """Represents the data associated with a scoring session"""
+
     uid: str = ""
     video_file_location: str = ""
     video_file_name: str = ""

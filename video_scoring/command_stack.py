@@ -1,14 +1,15 @@
-
 from typing import List
 from abc import ABC, abstractmethod
 
+
 class Command(ABC):
-    """ TODO
+    """TODO
     Implements a command for undo/redo functionality.
 
     Override the execute, undo, and redo methods to implement the desired functionality.
-    
+
     """
+
     @abstractmethod
     def __init__(self):
         pass
@@ -20,6 +21,7 @@ class Command(ABC):
     @abstractmethod
     def redo(self):
         pass
+
 
 class CommandStack:
     """
@@ -33,8 +35,9 @@ class CommandStack:
 
     If needed, future implementations may want to consider managing the stack size, the posiblity to
     excute long running commands a separate thread
-    
+
     """
+
     def __init__(self):
         self.stack: List[Command] = []
         self.index = -1
@@ -51,11 +54,10 @@ class CommandStack:
 
     def add_command(self, command: Command):
         # clear everything after the current index since we're branching
-        self.stack = self.stack[:self.index + 1]
+        self.stack = self.stack[: self.index + 1]
         self.stack.append(command)
         self.index += 1
 
         if len(self.stack) > 1000:
             self.stack = self.stack[1:]
             self.index -= 1
-   

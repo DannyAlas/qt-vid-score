@@ -23,10 +23,11 @@ DisableDirPage=yes
 DisableProgramGroupPage=yes
 ; Uncomment the following line to run in non administrative install mode (install for current user only.)
 ;PrivilegesRequired=lowest
-OutputBaseFilename=mysetup
+OutputBaseFilename=setup_{#MyAppName}_{#MyAppVersion}
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=C:\dev\projects\qt-vid-scoring\qt-vid-score\video_scoring\resources\icon_gray.ico
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

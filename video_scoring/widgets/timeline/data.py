@@ -1,5 +1,6 @@
 from typing import Union
 
+
 class OnsetOffset(dict):
     """
     Represents a dictionary of onset and offset frames. Provides methods to add a new entry with checks for overlap. Handels sorting.
@@ -8,10 +9,10 @@ class OnsetOffset(dict):
     -----
     The Key is the onset frame and the value is a dict with the keys "offset", "sure", and "notes". The value of "offset" is the offset frame. The value of "sure" is a bool indicating if the onset-offset pair is sure. The value of "notes" is a string.
 
-    We only store frames in the dict. The conversion to a time is handled by the UI. We will always store the onset and offset as frames. 
-    
+    We only store frames in the dict. The conversion to a time is handled by the UI. We will always store the onset and offset as frames.
+
     """
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._onset_offset = {}
@@ -26,9 +27,7 @@ class OnsetOffset(dict):
             raise TypeError("The value must be a dict")
 
         # check if the value has the correct keys
-        if not all(
-            key in value.keys() for key in ["offset", "sure", "notes"]
-        ):
+        if not all(key in value.keys() for key in ["offset", "sure", "notes"]):
             raise ValueError(
                 'The value must have the keys "offset", "sure", and "notes"'
             )
@@ -77,7 +76,9 @@ class OnsetOffset(dict):
         }
 
         # sort dict by onset
-        self._onset_offset = dict(sorted(self._onset_offset.items(), key=lambda x: x[0]))
+        self._onset_offset = dict(
+            sorted(self._onset_offset.items(), key=lambda x: x[0])
+        )
 
     def add_offset(self, onset, offset):
         # check if the onset is already in the dict
@@ -95,7 +96,9 @@ class OnsetOffset(dict):
         self._onset_offset[onset]["offset"] = offset
 
         # sort dict by onset
-        self._onset_offset = dict(sorted(self._onset_offset.items(), key=lambda x: x[0]))
+        self._onset_offset = dict(
+            sorted(self._onset_offset.items(), key=lambda x: x[0])
+        )
 
     def add_sure(self, onset, sure):
         # check if the onset is already in the dict
@@ -120,7 +123,7 @@ class OnsetOffset(dict):
 
         # add the notes to the dict
         self._onset_offset[onset]["notes"] = notes
-        
+
     def _check_overlap(self, onset, offset=None):
         """
         Check if the provided onset and offset times overlap with any existing ranges.
@@ -137,7 +140,7 @@ class OnsetOffset(dict):
         ValueError
             If there is an overlap.
         """
-        
+
         # If we are adding a new onset, check if it will overlap with any existing onset - offset ranges
         if offset is None:
             for n_onset, entry in self._onset_offset.items():
@@ -163,8 +166,10 @@ class OnsetOffset(dict):
                         f"The provided onset/offset range of `{onset} : {offset}` overlaps with an existing range: {n_onset} - {entry['offset']}"
                     )
 
+
 class Single(dict):
     """Represents a dictionary of onset frames. Handels sorting."""
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._onset = {}
@@ -179,12 +184,8 @@ class Single(dict):
             raise TypeError("The value must be a dict")
 
         # check if the value has the correct keys
-        if not all(
-            key in value.keys() for key in ["sure", "notes"]
-        ):
-            raise ValueError(
-                'The value must have the keys "sure", and "notes"'
-            )
+        if not all(key in value.keys() for key in ["sure", "notes"]):
+            raise ValueError('The value must have the keys "sure", and "notes"')
 
         # check if sure is a bool
         if not isinstance(value["sure"], bool):
@@ -244,8 +245,10 @@ class Single(dict):
         # add the notes to the dict
         self._onset[onset]["notes"] = notes
 
+
 class Behaviors(dict):
     """Represents a dictionary of behaviors. Each behavior has a name as a key and implements the OnsetOffset or Singe class as the value."""
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._behaviors = {}

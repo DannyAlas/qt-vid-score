@@ -1,4 +1,4 @@
-__version__ = "0.0.1"
+__version__ = "0.1.0"
 
 import inspect
 import json
@@ -21,6 +21,8 @@ from video_scoring.widgets.timestamps import TimeStampsDockwidget
 from video_scoring.widgets.video.frontend import VideoPlayerDockWidget
 from video_scoring.command_stack import Command, CommandStack
 from video_scoring.widgets.update import UpdateCheck, UpdateDialog, Updater
+from video_scoring.widgets.timeline import TimelineDockWidget
+
 log = logging.getLogger()
 
 
@@ -31,8 +33,10 @@ def logging_exept_hook(exctype, value, trace):
 
 sys.excepthook = logging_exept_hook
 
+
 class MainWindow(QMainWindow):
     loaded = Signal()
+
     def __init__(self, logging_level=logging.INFO):
         super().__init__()
         self.setWindowTitle("Video Scoring Thing")
@@ -52,36 +56,89 @@ class MainWindow(QMainWindow):
         self.loaded.emit()
 
     def check_for_update(self):
-        self.update_thread = QThread()
+        self.update_checker_thread = QThread()
         self.update_check = UpdateCheck()
-        self.update_check.moveToThread(self.update_thread)
-        self.update_thread.started.connect(self.update_check.run)
+        self.update_check.moveToThread(self.update_checker_thread)
+        self.update_checker_thread.started.connect(self.update_check.run)
         self.update_check.update_available.connect(self.update_available)
-        self.update_check.update_error.connect(lambda e: self.update_status(e, logging.ERROR))
-        self.update_check.no_update.connect(lambda: self.update_status(f"You are running the latest version! ({__version__})"))
-        self.update_thread.finished.connect(self.update_thread.quit)
-        self.update_thread.start()
+        self.update_check.no_update.connect(self.no_update_available)
+        self.update_check.update_error.connect(
+            lambda e: self.update_status(e, logging.ERROR)
+        )
+        self.update_check.no_update.connect(
+            lambda: self.update_status(
+                f"You are running the latest version! ({__version__})"
+            )
+        )
+        self.update_checker_thread.finished.connect(self.update_checker_thread.quit)
+        self.update_checker_thread.start()
 
     def update_available(self, data: Dict[str, Any]):
         self.update_dialog = UpdateDialog(data)
         self.update_dialog.accepted.connect(self.download_update)
         self.update_dialog.exec()
 
+    def no_update_available(self):
+        # check the installer folder in the appdata Video Scoring folder
+        # if it exists, check if the version is the same as the current version, if so delete it
+        # if it doesn't exist, do nothing
+        installer_dir = os.path.join(
+            os.getenv("LOCALAPPDATA"), "Video Scoring", "installer"
+        )
+        if os.path.exists(installer_dir):
+            for file in os.listdir(installer_dir):
+                # the installer name is setup_Video.Scoring_0.0.1.exe
+                if file.endswith(".exe"):
+                    if file.split("_")[-1].strip(".exe") == __version__:
+                        # delete the file
+                        os.remove(os.path.join(installer_dir, file))
+                        # show a message box saying that the we have successfully updated to the latest version
+                        self.update_status(
+                            f"Successfully updated to the latest version {__version__}"
+                        )
+                        msg = QtWidgets.QMessageBox()
+                        msg.setWindowTitle("Update")
+                        msg.setText(
+                            f"Successfully updated to the latest version {__version__}"
+                        )
+                        msg.setIcon(QtWidgets.QMessageBox.Icon.Information)
+                        msg.exec()
+                        return
+
     def download_update(self):
-        print("Updating...")
-        #self.update_thread = QThread()
+        self.update_thread = QThread()
         self.updater = Updater(self.update_dialog.data)
-        # self.updater.moveToThread(self.update_thread)
-        # self.update_thread.started.connect(self.updater.run)
-        # self.updater.progress_signals.complete.connect(self.update_thread.quit)
-        # self.updater.progress_signals.complete(self.update_dialog.accept)
-        # self.updater.progress_signals.complete(lambda: self.update_status(f"Updated to version {self.updater.data['tag_name']}"))
-        # self.updater.progress_signals.complete.connect(lambda: self.update_status(f"Restarting to apply update..."))
-        # self.updater.progress_signals.complete.connect(lambda: self.update_dialog.accept())
-        # self.updater.progress_signals.complete.connect(self.close)
-        # self.updater.progress_signals.complete.connect(self.update_thread.quit)
-        # # self.updater.update_complete.connect(lambda: os.execl(sys.executable, sys.executable, *sys.argv))
-        # self.update_thread.start()
+        self.updater.moveToThread(self.update_thread)
+        self.updater.progress_signals.started.connect(
+            lambda: self.start_pbar(
+                self.updater.progress_signals, "Downloading Update", "Downloaded Update"
+            )
+        )
+        self.updater.progress_signals.complete.connect(
+            lambda: self.update_status(
+                f"Downloaded update to {self.updater.data['tag_name']}"
+            )
+        )
+        self.updater.progress_signals.complete.connect(self._run_installer)
+        self.updater.progress_signals.complete.connect(self.update_thread.quit)
+        self.update_thread.started.connect(self.updater.run)
+        self.update_thread.start()
+
+    def _run_installer(self):
+        # run the installer
+        installer_dir = os.path.join(
+            os.getenv("LOCALAPPDATA"), "Video Scoring", "installer"
+        )
+        installer_file = [
+            os.path.join(installer_dir, file)
+            for file in os.listdir(installer_dir)
+            if file.endswith(".exe")
+        ][0]
+        import subprocess
+        proc = subprocess.Popen(installer_file, shell=True)
+        proc.wait()
+        # delete the installer
+        self.close()
 
     def _get_icon(self, icon_name, as_string=False):
         if self.project_settings.theme == "dark":
@@ -226,7 +283,9 @@ class MainWindow(QMainWindow):
                 self.tdt_loader.moveToThread(self.tdt_loader_thread)
                 self.tdt_loader_thread.started.connect(self.tdt_loader.run)
                 self.tdt_loader.signals.complete.connect(self.tdt_loader_thread.quit)
-                self.tdt_loader.signals.complete.connect(self.settings_dock_widget.refresh)
+                self.tdt_loader.signals.complete.connect(
+                    self.settings_dock_widget.refresh
+                )
                 self.tdt_loader.signals.complete.connect(
                     lambda: self.load_block(self.tdt_loader)
                 )
@@ -280,19 +339,17 @@ class MainWindow(QMainWindow):
         if os.path.exists(self.project_settings.video_file_location):
             self.video_player_dw.start(self.project_settings.video_file_location)
 
-        from video_scoring.widgets.timeline import TimelineDockWidget
+        self.timestamps_dw = TimeStampsDockwidget(self, self)
+        self.addDockWidget(
+            QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self.timestamps_dw
+        )
+        self.dock_widgets_menu.addAction(self.timestamps_dw.toggleViewAction())
 
         self.timeline_dw = TimelineDockWidget(self, self)
         self.addDockWidget(
             QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self.timeline_dw
         )
         self.dock_widgets_menu.addAction(self.timeline_dw.toggleViewAction())
-
-        self.timestamps_dw = TimeStampsDockwidget(self, self)
-        self.addDockWidget(
-            QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self.timestamps_dw
-        )
-        self.dock_widgets_menu.addAction(self.timestamps_dw.toggleViewAction())
 
     def open_settings_widget(self):
         if not hasattr(self, "settings_dock_widget"):
@@ -332,7 +389,7 @@ class MainWindow(QMainWindow):
 
         if action not in self.shortcut_handlers.keys():
             self.update_status(f"Action {action} not found in shortcut handlers")
-            #print(f"Action {action} not found in shortcut handlers")
+            # print(f"Action {action} not found in shortcut handlers")
             return
         # if the action is already registered, update the key sequence
         if action in [
@@ -404,7 +461,9 @@ class MainWindow(QMainWindow):
                 desktop.width() / 4,
                 desktop.height() / 4,
             )
-            self.update_status("No latest project settings found", log_level=logging.INFO)
+            self.update_status(
+                "No latest project settings found", log_level=logging.INFO
+            )
 
         self.update_log_file()
         self.init_logging()
@@ -446,7 +505,7 @@ class MainWindow(QMainWindow):
                 if location is None
                 else os.path.dirname(location)
             )
-        
+
         if file_dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
             # try save current project
             self.save_settings()
@@ -470,7 +529,8 @@ class MainWindow(QMainWindow):
 
     def load_settings(self):
         self.resize(
-            int(self.project_settings.window_size[0]), int(self.project_settings.window_size[1])
+            int(self.project_settings.window_size[0]),
+            int(self.project_settings.window_size[1]),
         )
         self.move(
             int(self.project_settings.window_position[0]),
@@ -489,7 +549,9 @@ class MainWindow(QMainWindow):
         )
         self.project_settings.window_size = (self.width(), self.height())
         self.project_settings.window_position = (self.x(), self.y())
-        self.project_settings.scoring_data.timestamp_data = self.timeline_dw.save_timestamps()
+        self.project_settings.scoring_data.timestamp_data = (
+            self.timeline_dw.save_timestamps()
+        )
         self.update_log_file()
         self.project_settings.save(file_location)
 
@@ -539,7 +601,6 @@ class MainWindow(QMainWindow):
         QtGui.QDesktopServices.openUrl(help_url)
 
     def about(self):
-    
         class JokeSignals(QtCore.QObject):
             complete = Signal(dict)
             finished = Signal()

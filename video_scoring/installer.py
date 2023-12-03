@@ -16,4 +16,3 @@ from video_scoring.main import __version__ as VERSION
 
 # get our current directory
 CURRENT_DIR = Path(__file__).parent.absolute()
-

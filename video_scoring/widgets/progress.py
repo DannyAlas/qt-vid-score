@@ -14,6 +14,7 @@ from qtpy.QtWidgets import QGridLayout, QLabel, QProgressBar, QWidget
 if TYPE_CHECKING:
     from video_scoring import MainWindow
 
+
 class ProgressSignals(QObject):
     started = Signal()
     progress = Signal(int)
@@ -62,6 +63,7 @@ class ProgressBar(QWidget):
         ][0]
         self.layout.addWidget(label, 0, 1)
         # add the progress bar to the status bar
+        self.main_win.statusBar().clearMessage()
         self.main_win.statusBar().addWidget(self)
 
     def complete_progress(self):

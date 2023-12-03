@@ -6,8 +6,16 @@ from video_scoring.widgets.timeline.behavior_items import OnsetOffsetItem
 if TYPE_CHECKING:
     from video_scoring.widgets.timeline.timeline import TimelineView
 
+
 class BehaviorTrack(QGraphicsRectItem):
-    def __init__(self, name: str, y_position, track_height, behavior_type: Literal['OnsetOffset', 'Single'], parent:'TimelineView'):
+    def __init__(
+        self,
+        name: str,
+        y_position,
+        track_height,
+        behavior_type: Literal["OnsetOffset", "Single"],
+        parent: "TimelineView",
+    ):
         super().__init__()
         self.parent = parent
         self.name = name
@@ -25,15 +33,15 @@ class BehaviorTrack(QGraphicsRectItem):
         self.behavior_items: dict[int, OnsetOffsetItem] = {}
 
         self.curr_behavior_item: Optional[OnsetOffsetItem] = None
-        
+
     def add_behavior(self, onset):
         # add a new behavior item
         # if offset is none we're we will be changing the offset based on the playheads position
-        self.curr_behavior_item  = OnsetOffsetItem(onset, onset+1, self.parent, self)
+        self.curr_behavior_item = OnsetOffsetItem(onset, onset + 1, self.parent, self)
         self.behavior_items[onset] = self.curr_behavior_item
         return self.curr_behavior_item
 
-    def remove_behavior(self, item: 'OnsetOffsetItem'):
+    def remove_behavior(self, item: "OnsetOffsetItem"):
         # remove the given behavior item
         self.behavior_items.pop(item.onset)
         self.parent.scene().removeItem(item)
@@ -57,7 +65,9 @@ class BehaviorTrack(QGraphicsRectItem):
                     return other_item
         return None
 
-    def overlap_with_item_check(self, item: 'OnsetOffsetItem', onset:int = None, offset:int = None):
+    def overlap_with_item_check(
+        self, item: "OnsetOffsetItem", onset: int = None, offset: int = None
+    ):
         """
         Check if the given onset or offset overlaps with any other items in the track.
 
@@ -85,7 +95,7 @@ class BehaviorTrack(QGraphicsRectItem):
                 if item == other_item:
                     continue
                 # if our new onset is between the onset and offset of another item
-                if other_onset <= onset and other_item.offset >= onset+1:
+                if other_onset <= onset and other_item.offset >= onset + 1:
                     return True
                 # if we encompass another item
                 if onset <= other_onset and item.offset >= other_item.offset:
@@ -97,14 +107,14 @@ class BehaviorTrack(QGraphicsRectItem):
                 if other_onset == item.onset:
                     continue
                 # if our new offset is between the onset and offset of another item
-                if offset-1 >= other_onset and offset <= other_item.offset:
+                if offset - 1 >= other_onset and offset <= other_item.offset:
                     return True
                 # if we encompass another item, don't update the onset or offset
                 if item.onset <= other_onset and offset >= other_item.offset:
                     return True
         return False
-    
-    def update_behavior_onset(self, item: 'OnsetOffsetItem', onset:int):
+
+    def update_behavior_onset(self, item: "OnsetOffsetItem", onset: int):
         """
         Update the onset of a behavior item in the `behavior_items` dict.
 
@@ -115,6 +125,3 @@ class BehaviorTrack(QGraphicsRectItem):
         """
         if onset != item.onset:
             self.behavior_items[onset] = self.behavior_items.pop(item.onset)
-
-
-

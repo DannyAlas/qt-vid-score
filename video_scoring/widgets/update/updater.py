@@ -18,10 +18,12 @@ from qtpy import QtWidgets, QtGui, QtCore
 from video_scoring.main import __version__ as VERSION
 from video_scoring.widgets.progress import ProgressSignals
 
+
 class UpdateCheck(QThread):
     update_available = Signal(dict)
     update_error = Signal(str)
     no_update = Signal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.url = "https://api.github.com/repos/DannyAlas/qt-vid-score/releases/latest"
@@ -44,9 +46,12 @@ class UpdateCheck(QThread):
                 self.no_update.emit()
         except Exception as e:
             self.update_error.emit(f"Error checking for update: {e}")
+
+
 class UpdateDialog(QDialog):
     accepted = Signal()
-    def __init__(self, data:dict, parent=None):
+
+    def __init__(self, data: dict, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Update Available")
         # standart update icon
@@ -60,12 +65,14 @@ class UpdateDialog(QDialog):
         self.body.setWordWrap(True)
         self.body.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
         self.body.setOpenExternalLinks(True)
-        self.body.setText(f"""<h1>Update Available!!</h1>
+        self.body.setText(
+            f"""<h1>Update Available!!</h1>
 Current Version: {VERSION}</h4>
 New Version: {self.new_ver}
 <br>
 <h3>Would you like to update?</h3>
-""")
+"""
+        )
         self.body.setContentsMargins(0, 0, 0, 0)
         self.accept_button = QPushButton("Update")
         self.accept_button.setFlat(False)
@@ -79,7 +86,7 @@ New Version: {self.new_ver}
         self.show_release_notes_button = QPushButton("Show Release Notes")
         self.show_release_notes_button.clicked.connect(self.show_release_notes)
         self.show_release_notes_button.setFlat(True)
-        # make it so when the user clicks the show release notes button, it will show the release notes but not close the dialog     
+        # make it so when the user clicks the show release notes button, it will show the release notes but not close the dialog
         self.button_layout = QtWidgets.QHBoxLayout()
         self.button_layout.addWidget(self.accept_button)
         self.button_layout.addWidget(self.reject_button)
@@ -101,19 +108,21 @@ New Version: {self.new_ver}
         self.layout.addLayout(self.button_layout)
         self.layout.setContentsMargins(5, 5, 5, 5)
         self.setLayout(self.layout)
-        
+
         if hasattr(self, "hide_release_notes_button"):
             self.hide_release_notes_button.hide()
-            
+
     def show_release_notes(self):
         self.show()
-        self.body.setText(f"""<h1>Update Available!!</h1>
+        self.body.setText(
+            f"""<h1>Update Available!!</h1>
 Current Version: {VERSION}
 New Version: {self.new_ver}
 <br>
 {markdown2.markdown(self.data.get('body'))}
 <br>
-<h3>Would you like to update?</h3>""")
+<h3>Would you like to update?</h3>"""
+        )
         self.show_release_notes_button.hide()
         # resize the dialog to fit the release notes
         self.resize(QtCore.QSize(500, 500))
@@ -124,16 +133,18 @@ New Version: {self.new_ver}
             self.hide_release_notes_button.setFlat(True)
             self.button_layout.addWidget(self.hide_release_notes_button)
             self.hide_release_notes_button.clicked.connect(self.hide_release_notes)
-        
+
     def hide_release_notes(self):
         self.show()
-        self.body.setText(f"""<h2>Update Available</h2>
+        self.body.setText(
+            f"""<h2>Update Available</h2>
 <br>
 <h3>Current Version: {VERSION}</h3>
 <h3>New Version: {self.new_ver}</h3>
 <br>
 <h3>Would you like to update?</h3>
-""")
+"""
+        )
         self.hide_release_notes_button.hide()
         self.resize(QtCore.QSize(200, 200))
         if hasattr(self, "show_release_notes_button"):
@@ -144,38 +155,39 @@ New Version: {self.new_ver}
             self.button_layout.addWidget(self.show_release_notes_button)
             self.show_release_notes_button.clicked.connect(self.show_release_notes)
 
+
 class Updater(QThread):
     """
     This class is used to update the application. It will download the latest release from github and extract it into the appropriate directory.
     """
+
     update_error = Signal(str)
 
     def __init__(self, data: dict, parent=None):
         super().__init__(parent)
         self.data = data
-        self.url = self.data.get("zipball_url")
+        self.url = self.data.get("assets")[0].get(
+            "browser_download_url"
+        )  # [0] is the windows release
         self.version = self.data.get("tag_name").strip("v")
-        self.temp_dir = Path(os.environ.get("TEMP"))
-        self.temp_file = self.temp_dir / f"qt-vid-score-{self.version}.zip"
-        self.install_dir = Path(os.environ.get("ProgramFiles"), "Video Scoring", self.version)
-        os.chmod(self.install_dir.parent.parent, 0o777)
-        os.chmod(self.install_dir.parent, 0o777)
-        os.chmod(self.install_dir, 0o777)
-        self.install_dir.mkdir(parents=True, exist_ok=True)
-            
+        self.install_dir = os.path.join(
+            (os.environ.get("LOCALAPPDATA")), "Video Scoring", "installer"
+        )
+        if not os.path.exists(self.install_dir):
+            os.makedirs(self.install_dir, exist_ok=True)
+        self.installer_file = os.path.join(self.install_dir, self.url.split("/")[-1])
         self.progress_signals = ProgressSignals()
-        
+
     def run(self):
         try:
             self.update()
         except Exception as e:
             self.update_error.emit(f"Error updating: {e}")
+        self.progress_signals.complete.emit()
 
     def update(self):
         try:
             self.download()
-            self.extract()
-            self.progress_signals.complete.emit()
         except Exception as e:
             self.update_error.emit(f"Error updating: {e}")
 
@@ -185,18 +197,12 @@ class Updater(QThread):
             response = requests.get(self.url, stream=True)
             response.raise_for_status()
             total_length = int(response.headers.get("content-length"))
-            with open(self.temp_file, "wb") as f:
+            with open(self.installer_file, "wb") as f:
                 dl = 0
                 for data in response.iter_content(chunk_size=4096):
                     dl += len(data)
                     f.write(data)
+                    print(dl / total_length * 100)
                     self.progress_signals.progress.emit(int(dl / total_length * 100))
         except Exception as e:
             self.update_error.emit(f"Error downloading update: {e}")
-
-    def extract(self):
-        try:
-            with ZipFile(self.temp_file, "r") as zip_file:
-                zip_file.extractall(self.install_dir)
-        except Exception as e:
-            self.update_error.emit(f"Error extracting update: {e}")

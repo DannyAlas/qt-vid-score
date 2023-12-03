@@ -6,8 +6,16 @@ import numpy as np
 from qtpy import QtCore
 from qtpy.QtCore import QObject, Qt, QThread, Signal, Slot, QUrl
 from qtpy.QtGui import QImage, QPixmap, QPainter, QBrush
-from qtpy.QtWidgets import (QDockWidget, QLabel, QPushButton, QSizePolicy,
-                            QSlider, QStyleOptionSlider, QVBoxLayout, QWidget)
+from qtpy.QtWidgets import (
+    QDockWidget,
+    QLabel,
+    QPushButton,
+    QSizePolicy,
+    QSlider,
+    QStyleOptionSlider,
+    QVBoxLayout,
+    QWidget,
+)
 
 from video_scoring.widgets.video.backend import VideoPlayer
 
@@ -18,7 +26,7 @@ if TYPE_CHECKING:
 class VideoDisplay(QLabel):
     """A QLabel where we always repaint the most recent frame"""
 
-    def __init__(self, parent:'VideoWidget'):
+    def __init__(self, parent: "VideoWidget"):
         super(VideoDisplay, self).__init__(parent)
         self.parent = parent
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -41,7 +49,7 @@ class VideoWidgetSignals(QObject):
 
 # a window with a VideoDisplay label for displaying the video
 class VideoWidget(QWidget):
-    def __init__(self, parent: 'VideoPlayerDockWidget'):
+    def __init__(self, parent: "VideoPlayerDockWidget"):
         super(VideoWidget, self).__init__(parent)
         self.parent = parent
         self.video_display = VideoDisplay(self)
@@ -162,7 +170,7 @@ class PlayerControls(QWidget):
         self.layout.addWidget(self.frame_label)
         self.layout.addWidget(self.play_button)
         self.layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.setSpacing(1)        
+        self.layout.setSpacing(1)
         self.frame_label.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
@@ -183,6 +191,7 @@ class PlayerControls(QWidget):
                     )
                 )
             )
+
 
 class VideoPlayerDockWidget(QDockWidget):
     def __init__(self, main_win: "MainWindow", parent=None):
@@ -328,28 +337,14 @@ class VideoPlayerDockWidget(QDockWidget):
         # get the current frame number
         frame_num = self.video_widget.play_worker.vc.frame_num
         self.main_win.timeline_dw.timeline_view.add_oo_behavior(frame_num)
-        self.main_win.timestamps_dw.table_widget.add_timestamp(frame_num)
-        _ts = self.main_win.timestamps_dw.table_widget.timestamps
-        # _ts is a dict of onset:{offset:float, sure:bool}
-        # convert to a list containing all the onsets and offsets
-        ts = []
-        for onset, offset_dict in _ts.items():
-            ts.append(onset)
-            # if offset is not None:
-            if offset_dict["offset"] is not None:
-                ts.append(offset_dict["offset"])
-
+        self.main_win.timestamps_dw.table_widget.update()
 
     def update_timeline(self, frame_num):
         if self.main_win.project_settings.scoring.save_frame_or_time == "frame":
             self.player_controls.frame_label.setNum(frame_num)
         else:
             self.player_controls.frame_label.setText(
-                str(
-                    self.video_widget.play_worker.vc.video.frame_ts.get(
-                        frame_num, 0
-                    )
-                )
+                str(self.video_widget.play_worker.vc.video.frame_ts.get(frame_num, 0))
             )
         if not self.timeline.timeline_view.playhead.triangle.pressed:
             self.timeline.timeline_view.setValue(frame_num)

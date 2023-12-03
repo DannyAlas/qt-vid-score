@@ -6,23 +6,30 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from video_scoring.widgets.timeline.timeline import TimelineView
 
+
 class playheadSignals(QObject):
     valueChanged = Signal(int)
+
+
 class DraggableTriangle(QGraphicsPolygonItem):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.signals = playheadSignals()
         # Define the shape as a pentagon
-        self.setPolygon(QPolygonF([
-            QPointF(-10, -12), 
-            QPointF(10, -12),
-            QPointF(10, -5), 
-            QPointF(0, 0),
-            QPointF(-10, -5),
-            ]))
+        self.setPolygon(
+            QPolygonF(
+                [
+                    QPointF(-10, -12),
+                    QPointF(10, -12),
+                    QPointF(10, -5),
+                    QPointF(0, 0),
+                    QPointF(-10, -5),
+                ]
+            )
+        )
         self.setBrush(QBrush(QColor("#6aa1f5")))
         self.setFlag(QGraphicsLineItem.GraphicsItemFlag.ItemIsSelectable, False)
-        self.setFlag(QGraphicsLineItem.GraphicsItemFlag.ItemIsMovable, True)  
+        self.setFlag(QGraphicsLineItem.GraphicsItemFlag.ItemIsMovable, True)
         self.setAcceptHoverEvents(True)
         self.setFlag(QGraphicsLineItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
         self.current_frame = 0
@@ -46,8 +53,9 @@ class DraggableTriangle(QGraphicsPolygonItem):
         self.pressed = False
         super().mouseReleaseEvent(event)
 
+
 class CustomPlayhead(QGraphicsLineItem):
-    def __init__(self, x, y, height, frame_width, tl: 'TimelineView'):
+    def __init__(self, x, y, height, frame_width, tl: "TimelineView"):
         super().__init__(0, y, 0, y + height + 10)
         self.frame_width = frame_width
         self.tl = tl
@@ -59,6 +67,6 @@ class CustomPlayhead(QGraphicsLineItem):
         self.setZValue(1000)
         # Create the triangle and set it as a child of the line
         self.triangle = DraggableTriangle(self)
-        
+
     def updateFrameWidth(self, new_width):
         self.frame_width = new_width

@@ -1,4 +1,3 @@
-
 import logging
 import sys
 import traceback as tb
@@ -27,18 +26,9 @@ sys.excepthook = logging_exept_hook
 import argparse
 
 parser = argparse.ArgumentParser(description="Video Scoring")
-parser.add_argument(
-    "--debug", action="store_true", help="Enable debug logging"
-)
-parser.add_argument(
-    "--version", action="store_true", help="Print version and exit"
-)
-# a '--install' argument, will run the updater instead of the main program. This is given by the old updater to the new version of the program.
-parser.add_argument(
-    "--install", action="store_true", help="Run updater instead of main program"
-)
+parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+parser.add_argument("--version", action="store_true", help="Print version and exit")
 args = parser.parse_args()
-
 if args.debug:
     logging.basicConfig(
         level=logging.DEBUG,
