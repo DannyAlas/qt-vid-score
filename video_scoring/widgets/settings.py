@@ -1,17 +1,12 @@
 import typing
 from typing import TYPE_CHECKING, Union
-from qtpy.QtCore import Qt
+
 import qdarktheme
 from qtpy import QtCore, QtGui, QtWidgets
+from qtpy.QtCore import Qt
 
-from video_scoring.settings import (
-    AbstSettings,
-    KeyBindings,
-    Playback,
-    ProjectSettings,
-    Scoring,
-    ScoringData,
-)
+from video_scoring.settings import (AbstSettings, KeyBindings, Playback,
+                                    ProjectSettings, Scoring, ScoringData)
 
 if TYPE_CHECKING:
     from main import MainWindow

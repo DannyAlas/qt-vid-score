@@ -1,6 +1,8 @@
-from qtpy.QtWidgets import QGraphicsRectItem, QGraphicsItem
+from typing import TYPE_CHECKING, Literal, Optional
+
 from qtpy.QtGui import QBrush, QColor
-from typing import Optional, Literal, TYPE_CHECKING
+from qtpy.QtWidgets import QGraphicsItem, QGraphicsRectItem
+
 from video_scoring.widgets.timeline.behavior_items import OnsetOffsetItem
 
 if TYPE_CHECKING:

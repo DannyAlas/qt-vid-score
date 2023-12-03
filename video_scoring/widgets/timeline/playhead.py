@@ -1,7 +1,8 @@
-from qtpy.QtCore import Qt, QPointF, QObject, Signal
+from typing import TYPE_CHECKING
+
+from qtpy.QtCore import QObject, QPointF, Qt, Signal
 from qtpy.QtGui import QBrush, QColor, QPen, QPolygonF
 from qtpy.QtWidgets import QGraphicsLineItem, QGraphicsPolygonItem
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from video_scoring.widgets.timeline.timeline import TimelineView

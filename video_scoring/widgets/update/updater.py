@@ -6,26 +6,30 @@
 import logging
 import os
 import sys
-import markdown2
 import traceback as tb
 from pathlib import Path
 from zipfile import ZipFile
 
+import markdown2
+from pydantic import VERSION
 import requests
-from qtpy.QtCore import Qt, QThread, Signal, Slot
-from qtpy.QtWidgets import QApplication, QMessageBox, QPushButton, QDialog
-from qtpy import QtWidgets, QtGui, QtCore
-from video_scoring.main import __version__ as VERSION
+from qtpy import QtCore, QtWidgets
+from qtpy.QtCore import Qt, QThread, Signal
+from qtpy.QtWidgets import QDialog, QPushButton
+
 from video_scoring.widgets.progress import ProgressSignals
+from qtpy.QtWidgets import QMainWindow
 
-
+VERSION = ""
 class UpdateCheck(QThread):
     update_available = Signal(dict)
     update_error = Signal(str)
     no_update = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, version, parent: 'QMainWindow'=None):
         super().__init__(parent)
+        global VERSION
+        VERSION = version
         self.url = "https://api.github.com/repos/DannyAlas/qt-vid-score/releases/latest"
 
     def run(self):

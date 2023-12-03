@@ -1,17 +1,14 @@
 import re
-from qtpy.QtWidgets import (
-    QGraphicsView,
-    QGraphicsScene,
-    QGraphicsLineItem,
-    QFrame,
-    QDockWidget,
-)
-from qtpy.QtCore import Qt, QRectF, Signal
-from qtpy.QtGui import QPen, QPainter
 from typing import TYPE_CHECKING, List
-from video_scoring.widgets.timeline.track import BehaviorTrack
-from video_scoring.widgets.timeline.playhead import CustomPlayhead
+
+from qtpy.QtCore import QRectF, Qt, Signal
+from qtpy.QtGui import QPainter, QPen
+from qtpy.QtWidgets import (QDockWidget, QFrame, QGraphicsLineItem,
+                            QGraphicsScene, QGraphicsView)
+
 from video_scoring.command_stack import Command
+from video_scoring.widgets.timeline.playhead import CustomPlayhead
+from video_scoring.widgets.timeline.track import BehaviorTrack
 
 if TYPE_CHECKING:
     from video_scoring import MainWindow
@@ -67,6 +64,7 @@ class DeleteBehaviorCommand(Command):
         self.track.curr_behavior_item = None
         self.timeline_view.scene().addItem(self.item)
         self.timeline_view.scene().update()
+
 
 class TimelineView(QGraphicsView):
     valueChanged = Signal(int)

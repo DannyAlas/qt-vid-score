@@ -2,6 +2,7 @@ import logging
 import sys
 import traceback as tb
 
+import argparse
 import qdarktheme
 from qtpy.QtWidgets import QApplication
 
@@ -9,6 +10,7 @@ from video_scoring import MainWindow, __version__
 
 try:
     from ctypes import windll
+
     myappid = "danielalas.video.scoring." + str(__version__).strip(".")
     windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 except ImportError:
@@ -22,8 +24,6 @@ def logging_exept_hook(exctype, value, trace):
 
 
 sys.excepthook = logging_exept_hook
-
-import argparse
 
 parser = argparse.ArgumentParser(description="Video Scoring")
 parser.add_argument("--debug", action="store_true", help="Enable debug logging")

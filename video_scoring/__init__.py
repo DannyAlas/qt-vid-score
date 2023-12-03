@@ -1,2 +1,2 @@
-from .main import MainWindow, __version__
 from .command_stack import Command, CommandStack
+from .video_scoring import MainWindow, __version__

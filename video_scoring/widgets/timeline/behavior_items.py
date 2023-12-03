@@ -1,21 +1,19 @@
-from qtpy.QtCore import Qt, QRectF, QTimer, QObject, Signal
-from qtpy.QtGui import QBrush, QColor, QPen, QPainter
-from qtpy.QtWidgets import (
-    QGraphicsItem,
-    QStyleOptionGraphicsItem,
-    QGraphicsRectItem,
-    QGraphicsSceneHoverEvent,
-    QWidget,
-    QGraphicsSceneMouseEvent,
-)
-from video_scoring.command_stack import Command
 from typing import TYPE_CHECKING
 
+from qtpy.QtCore import QObject, QRectF, Qt, QTimer, Signal
+from qtpy.QtGui import QBrush, QColor, QPainter, QPen
+from qtpy.QtWidgets import (QGraphicsItem, QGraphicsRectItem,
+                            QGraphicsSceneHoverEvent, QGraphicsSceneMouseEvent,
+                            QStyleOptionGraphicsItem, QWidget)
+
+from video_scoring.command_stack import Command
+
 if TYPE_CHECKING:
+    from qtpy.QtCore import QPointF
+
+    from video_scoring import MainWindow
     from video_scoring.widgets.timeline.timeline import TimelineView
     from video_scoring.widgets.timeline.track import BehaviorTrack
-    from qtpy.QtCore import QPointF
-    from video_scoring import MainWindow
 
 
 class OnsetOffsetMoveCommand(Command):

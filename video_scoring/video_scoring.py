@@ -6,22 +6,23 @@ import logging
 import os
 import sys
 import traceback as tb
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Dict, Literal, Optional
+
 import qdarktheme
 import requests
-from qtpy import QtCore, QtGui, QtNetwork, QtWidgets
+from qtpy import QtCore, QtGui, QtWidgets
 from qtpy.QtCore import QThread, QUrl, Signal
 from qtpy.QtWidgets import QMainWindow
 
+from video_scoring.command_stack import CommandStack
 from video_scoring.settings import ProjectSettings, TDTData
 from video_scoring.widgets.loaders import TDTLoader
 from video_scoring.widgets.progress import ProgressBar, ProgressSignals
 from video_scoring.widgets.settings import SettingsDockWidget
-from video_scoring.widgets.timestamps import TimeStampsDockwidget
-from video_scoring.widgets.video.frontend import VideoPlayerDockWidget
-from video_scoring.command_stack import Command, CommandStack
-from video_scoring.widgets.update import UpdateCheck, UpdateDialog, Updater
 from video_scoring.widgets.timeline import TimelineDockWidget
+from video_scoring.widgets.timestamps import TimeStampsDockwidget
+from video_scoring.widgets.update import UpdateCheck, UpdateDialog, Updater
+from video_scoring.widgets.video.frontend import VideoPlayerDockWidget
 
 log = logging.getLogger()
 
@@ -57,7 +58,8 @@ class MainWindow(QMainWindow):
 
     def check_for_update(self):
         self.update_checker_thread = QThread()
-        self.update_check = UpdateCheck()
+        # we pass in the version of the current to get around circular imports
+        self.update_check = UpdateCheck(version=__version__, parent=self)
         self.update_check.moveToThread(self.update_checker_thread)
         self.update_checker_thread.started.connect(self.update_check.run)
         self.update_check.update_available.connect(self.update_available)
@@ -135,6 +137,7 @@ class MainWindow(QMainWindow):
             if file.endswith(".exe")
         ][0]
         import subprocess
+
         subprocess.Popen(installer_file, shell=True)
         self.close()
 

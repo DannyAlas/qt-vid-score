@@ -4,18 +4,10 @@ from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 from qtpy import QtCore
-from qtpy.QtCore import QObject, Qt, QThread, Signal, Slot, QUrl
-from qtpy.QtGui import QImage, QPixmap, QPainter, QBrush
-from qtpy.QtWidgets import (
-    QDockWidget,
-    QLabel,
-    QPushButton,
-    QSizePolicy,
-    QSlider,
-    QStyleOptionSlider,
-    QVBoxLayout,
-    QWidget,
-)
+from qtpy.QtCore import QObject, Qt, QThread, QUrl, Signal, Slot
+from qtpy.QtGui import QBrush, QImage, QPainter, QPixmap
+from qtpy.QtWidgets import (QDockWidget, QLabel, QPushButton, QSizePolicy,
+                            QSlider, QStyleOptionSlider, QVBoxLayout, QWidget)
 
 from video_scoring.widgets.video.backend import VideoPlayer
 

@@ -1,5 +1,6 @@
 # this the a backend for the video widget, it will provide the functionality for getting video frames.
 # we will use the opencv library to get the frames from the video
+import logging
 from typing import TYPE_CHECKING, Union
 
 import cv2
@@ -7,18 +8,9 @@ import numpy as np
 from qtpy import QtGui
 from qtpy.QtCore import QMutex, QObject, Qt, QThread, QTimer, Signal, Slot
 from qtpy.QtGui import QAction, QIcon, QImage, QPixmap
-from qtpy.QtWidgets import (
-    QApplication,
-    QLabel,
-    QMainWindow,
-    QMenuBar,
-    QPushButton,
-    QSizePolicy,
-    QSlider,
-    QVBoxLayout,
-    QWidget,
-)
-import logging
+from qtpy.QtWidgets import (QApplication, QLabel, QMainWindow, QMenuBar,
+                            QPushButton, QSizePolicy, QSlider, QVBoxLayout,
+                            QWidget)
 
 if TYPE_CHECKING:
     import numpy as np

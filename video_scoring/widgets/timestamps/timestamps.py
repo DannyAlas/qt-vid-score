@@ -261,11 +261,10 @@ class TimeStampsDockwidget(QtWidgets.QDockWidget):
         self.main_layout.addWidget(self.toolbar)
 
         # add a save button
-        self.save_act = QtWidgets.QAction(
-            self.main_win._get_icon("save"), "Save", self)
+        self.save_act = QtWidgets.QAction(self.main_win._get_icon("save"), "Save", self)
         self.save_act.triggered.connect(self.save)
         self.toolbar.addAction(self.save_act)
-        
+
         self.table_widget = TsWidget(self.main_win)
         self.main_layout.addWidget(self.table_widget)
 
