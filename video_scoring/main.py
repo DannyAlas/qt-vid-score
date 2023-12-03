@@ -135,9 +135,7 @@ class MainWindow(QMainWindow):
             if file.endswith(".exe")
         ][0]
         import subprocess
-        proc = subprocess.Popen(installer_file, shell=True)
-        proc.wait()
-        # delete the installer
+        subprocess.Popen(installer_file, shell=True)
         self.close()
 
     def _get_icon(self, icon_name, as_string=False):
