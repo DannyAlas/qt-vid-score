@@ -1,1 +1,1 @@
-from .updater import UpdateCheck, UpdateDialog
+from .updater import UpdateCheck, UpdateDialog, Updater

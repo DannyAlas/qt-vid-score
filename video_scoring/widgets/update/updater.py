@@ -16,7 +16,7 @@ from qtpy.QtCore import Qt, QThread, Signal, Slot
 from qtpy.QtWidgets import QApplication, QMessageBox, QPushButton, QDialog
 from qtpy import QtWidgets, QtGui, QtCore
 from video_scoring.main import __version__ as VERSION
-
+from video_scoring.widgets.progress import ProgressSignals
 
 class UpdateCheck(QThread):
     update_available = Signal(dict)
@@ -45,6 +45,7 @@ class UpdateCheck(QThread):
         except Exception as e:
             self.update_error.emit(f"Error checking for update: {e}")
 class UpdateDialog(QDialog):
+    accepted = Signal()
     def __init__(self, data:dict, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Update Available")
@@ -69,6 +70,7 @@ New Version: {self.new_ver}
         self.accept_button = QPushButton("Update")
         self.accept_button.setFlat(False)
         self.accept_button.clicked.connect(self.accept)
+        self.accept_button.clicked.connect(self.accepted.emit)
         self.accept_button.setMinimumSize(QtCore.QSize(60, 20))
         self.reject_button = QPushButton("Later")
         self.reject_button.setFlat(False)
@@ -142,5 +144,59 @@ New Version: {self.new_ver}
             self.button_layout.addWidget(self.show_release_notes_button)
             self.show_release_notes_button.clicked.connect(self.show_release_notes)
 
+class Updater(QThread):
+    """
+    This class is used to update the application. It will download the latest release from github and extract it into the appropriate directory.
+    """
+    update_error = Signal(str)
 
+    def __init__(self, data: dict, parent=None):
+        super().__init__(parent)
+        self.data = data
+        self.url = self.data.get("zipball_url")
+        self.version = self.data.get("tag_name").strip("v")
+        self.temp_dir = Path(os.environ.get("TEMP"))
+        self.temp_file = self.temp_dir / f"qt-vid-score-{self.version}.zip"
+        self.install_dir = Path(os.environ.get("ProgramFiles"), "Video Scoring", self.version)
+        os.chmod(self.install_dir.parent.parent, 0o777)
+        os.chmod(self.install_dir.parent, 0o777)
+        os.chmod(self.install_dir, 0o777)
+        self.install_dir.mkdir(parents=True, exist_ok=True)
+            
+        self.progress_signals = ProgressSignals()
         
+    def run(self):
+        try:
+            self.update()
+        except Exception as e:
+            self.update_error.emit(f"Error updating: {e}")
+
+    def update(self):
+        try:
+            self.download()
+            self.extract()
+            self.progress_signals.complete.emit()
+        except Exception as e:
+            self.update_error.emit(f"Error updating: {e}")
+
+    def download(self):
+        try:
+            self.progress_signals.started.emit()
+            response = requests.get(self.url, stream=True)
+            response.raise_for_status()
+            total_length = int(response.headers.get("content-length"))
+            with open(self.temp_file, "wb") as f:
+                dl = 0
+                for data in response.iter_content(chunk_size=4096):
+                    dl += len(data)
+                    f.write(data)
+                    self.progress_signals.progress.emit(int(dl / total_length * 100))
+        except Exception as e:
+            self.update_error.emit(f"Error downloading update: {e}")
+
+    def extract(self):
+        try:
+            with ZipFile(self.temp_file, "r") as zip_file:
+                zip_file.extractall(self.install_dir)
+        except Exception as e:
+            self.update_error.emit(f"Error extracting update: {e}")

@@ -20,7 +20,7 @@ from video_scoring.widgets.settings import SettingsDockWidget
 from video_scoring.widgets.timestamps import TimeStampsDockwidget
 from video_scoring.widgets.video.frontend import VideoPlayerDockWidget
 from video_scoring.command_stack import Command, CommandStack
-from video_scoring.widgets.update import UpdateCheck, UpdateDialog
+from video_scoring.widgets.update import UpdateCheck, UpdateDialog, Updater
 log = logging.getLogger()
 
 
@@ -64,8 +64,24 @@ class MainWindow(QMainWindow):
 
     def update_available(self, data: Dict[str, Any]):
         self.update_dialog = UpdateDialog(data)
+        self.update_dialog.accepted.connect(self.download_update)
         self.update_dialog.exec()
 
+    def download_update(self):
+        print("Updating...")
+        #self.update_thread = QThread()
+        self.updater = Updater(self.update_dialog.data)
+        # self.updater.moveToThread(self.update_thread)
+        # self.update_thread.started.connect(self.updater.run)
+        # self.updater.progress_signals.complete.connect(self.update_thread.quit)
+        # self.updater.progress_signals.complete(self.update_dialog.accept)
+        # self.updater.progress_signals.complete(lambda: self.update_status(f"Updated to version {self.updater.data['tag_name']}"))
+        # self.updater.progress_signals.complete.connect(lambda: self.update_status(f"Restarting to apply update..."))
+        # self.updater.progress_signals.complete.connect(lambda: self.update_dialog.accept())
+        # self.updater.progress_signals.complete.connect(self.close)
+        # self.updater.progress_signals.complete.connect(self.update_thread.quit)
+        # # self.updater.update_complete.connect(lambda: os.execl(sys.executable, sys.executable, *sys.argv))
+        # self.update_thread.start()
 
     def _get_icon(self, icon_name, as_string=False):
         if self.project_settings.theme == "dark":

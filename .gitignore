@@ -27,6 +27,7 @@ share/python-wheels/
 MANIFEST
 Include/
 Scripts/
+Output/
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -116,6 +117,7 @@ celerybeat.pid
 # Environments
 .env
 .venv
+.vscode/
 env/
 venv/
 ENV/

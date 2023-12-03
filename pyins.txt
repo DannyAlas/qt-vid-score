@@ -2,4 +2,6 @@ Command for bundeling the application
 
 Must be run with in the virtual environment from the root of the project (where the main.py file is located outside of the video_scoring folder)
 
-python -m PyInstaller --noconfirm --onefile --log-level=WARN --windowed --name "Video Scoring" --add-data="video_scoring/resources/*;video_scoring/resources/" --hidden-import qtpy --icon="video_scoring\resources\icon_bg.ico" main.py
+# For future reference, the installer.iss needs to be recreated to have the logo and correct name. Not tested, but it should be able to install with no external dependencies. The installer  will overwrite the installation files if it is a different version then what is installed. We can use the in the updater by downloading the latest installer, and running it, then closing our app. The installer will then write over the app files. just need to figure out how to delete the installer after it is run, maybe download into a temp folder, then every startup check if there is a file in the temp folder, if so delete it.
+
+python -m PyInstaller --noconfirm --log-level=WARN --windowed --name "Video Scoring" --add-data="video_scoring/resources/*;video_scoring/resources/" --hidden-import qtpy --icon="video_scoring\resources\icon_bg.ico" main.py

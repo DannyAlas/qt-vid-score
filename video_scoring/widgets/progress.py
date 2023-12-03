@@ -1,3 +1,11 @@
+"""
+The general workflow for this will be:
+
+If you want to pop up a progress bar you will instantiate a progress bar signal object and add your connections
+
+Then pass it to the main window which will instantiate a progress bar and pass your provided signal object to it
+
+"""
 from typing import TYPE_CHECKING
 
 from qtpy.QtCore import QObject, QThread, Signal
@@ -5,11 +13,6 @@ from qtpy.QtWidgets import QGridLayout, QLabel, QProgressBar, QWidget
 
 if TYPE_CHECKING:
     from video_scoring import MainWindow
-
-# The general workflow for this will be:
-# If you want to pop up a progress bar you will instantiate a progress bar signal object and add your connections
-# Then pass it to the main window which will instantiate a progress bar and pass your provided signal object to it
-
 
 class ProgressSignals(QObject):
     started = Signal()

@@ -1,4 +1,3 @@
-__version__ = "0.0.1"
 
 import logging
 import sys
@@ -7,7 +6,7 @@ import traceback as tb
 import qdarktheme
 from qtpy.QtWidgets import QApplication
 
-from video_scoring import MainWindow
+from video_scoring import MainWindow, __version__
 
 try:
     from ctypes import windll
@@ -24,6 +23,35 @@ def logging_exept_hook(exctype, value, trace):
 
 
 sys.excepthook = logging_exept_hook
+
+import argparse
+
+parser = argparse.ArgumentParser(description="Video Scoring")
+parser.add_argument(
+    "--debug", action="store_true", help="Enable debug logging"
+)
+parser.add_argument(
+    "--version", action="store_true", help="Print version and exit"
+)
+# a '--install' argument, will run the updater instead of the main program. This is given by the old updater to the new version of the program.
+parser.add_argument(
+    "--install", action="store_true", help="Run updater instead of main program"
+)
+args = parser.parse_args()
+
+if args.debug:
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+else:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+if args.version:
+    print(f"Video Scoring v{__version__}")
+    sys.exit(0)
 
 
 if __name__ == "__main__":
