@@ -3,6 +3,8 @@ https://github.com/DannyAlas/qt-vid-score/assets/81212794/bc15fd36-d8d4-492d-874
 
 Aims to assist in behavioral scoring with automatic behavior detection and model training features.
 
+## [Installation](https://github.com/DannyAlas/qt-vid-score/wiki/Installation)
+
 ## Keybinds
 Can be edited in the settings menu. The default keybinds are as follows:
 | Action Name                                     | Keybind        | Explanation                                             |
