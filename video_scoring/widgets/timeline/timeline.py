@@ -1,18 +1,23 @@
-import re
 from typing import TYPE_CHECKING, List
 
-from qtpy.QtCore import QRectF, Qt, Signal
+from qtpy.QtCore import QRectF, Qt, Signal, QEvent
 from qtpy.QtGui import QPainter, QPen
-from qtpy.QtWidgets import (QDockWidget, QFrame, QGraphicsLineItem,
-                            QGraphicsScene, QGraphicsView)
+from qtpy.QtWidgets import (
+    QDockWidget,
+    QFrame,
+    QGraphicsLineItem,
+    QGraphicsScene,
+    QGraphicsView,
+    QRubberBand,
+)
 
 from video_scoring.command_stack import Command
 from video_scoring.widgets.timeline.playhead import CustomPlayhead
 from video_scoring.widgets.timeline.track import BehaviorTrack
+from video_scoring.widgets.timeline.behavior_items import OnsetOffsetItem
 
 if TYPE_CHECKING:
     from video_scoring import MainWindow
-    from video_scoring.widgets.timeline.behavior_items import OnsetOffsetItem
 
 
 class AddBehaviorCommand(Command):
@@ -74,8 +79,11 @@ class TimelineView(QGraphicsView):
         super().__init__()
         # Set up the scene
         self.setScene(QGraphicsScene(self))
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setMouseTracking(True)
+        # set drag mode to no drag and enable RubberBandSelection
+        self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+        self.setRubberBandSelectionMode(Qt.ItemSelectionMode.IntersectsItemShape)
+        self.setInteractive(True)
         self.parent = parent
         self.value = 0  # Current frame
         self.base_frame_width = 50  # Base width for each frame
@@ -103,8 +111,6 @@ class TimelineView(QGraphicsView):
             0, 0, num_frames * self.frame_width, 60
         )  # Adjust the size as needed
         # Customize the view
-        self.setInteractive(True)
-        self.setDragMode(QGraphicsView.DragMode.NoDrag)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setFrameShape(QFrame.Shape.NoFrame)
@@ -115,10 +121,13 @@ class TimelineView(QGraphicsView):
         self.scene().addItem(self.playhead)
         self.playhead.triangle.signals.valueChanged.connect(self.valueChanged.emit)
 
+        self.selection_rect = QRubberBand(QRubberBand.Shape.Rectangle, self)
+        self.selection_rect.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.selection_rect.hide()
         # add a track
         self.track_height = 50
         self.track_y_start = 50
-
+        self.resize(self.width(), self.track_y_start + self.track_height + 10)
         self.hover_line = QGraphicsLineItem(0, 0, 0, 0)
 
         ################ TEMP ################
@@ -199,7 +208,7 @@ class TimelineView(QGraphicsView):
         self.tick_bottom = int(
             self.mapToScene(0, 0).y() + self.tick_size + self.top_margin
         )
-
+        # this will be the number of frames between each tick, should always be at least 1 but no more than 10
         for i in range(
             max(0, visible_left_frame), min(visible_right_frame, self.num_frames)
         ):
@@ -212,6 +221,7 @@ class TimelineView(QGraphicsView):
                 rect = QRectF(x - 20, self.tick_bottom, 40, 20)
                 painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, str(i))
             else:
+                # TODO: fix this such that we only draw a max of maybe 10 ticks in between each major tick
                 x = int(i * self.frame_width)
                 painter.drawLine(x, self.tick_top + 5, x, self.tick_bottom - 5)
 
@@ -236,7 +246,7 @@ class TimelineView(QGraphicsView):
         )
         return left, right
 
-    def move_playhead_to_frame(self, frame):
+    def move_playhead_to_frame(self, frame: int):
         # move the playhead to a specific frame
         self.playhead.setPos(abs(self.get_x_pos_of_frame(frame)), 0)
         self.playhead.triangle.current_frame = frame
@@ -248,6 +258,7 @@ class TimelineView(QGraphicsView):
                 self.behavior_tracks[0].curr_behavior_item.set_offset(frame)
             else:
                 x.setErrored()
+        self.value = frame
         self.valueChanged.emit(frame)
 
     def wheelEvent(self, event):
@@ -259,6 +270,7 @@ class TimelineView(QGraphicsView):
             self.scrollEvent(event)
 
     def zoomEvent(self, event):
+        og_frame_at_mouse = self.get_frame_of_x_pos(self.mapToScene(event.pos()).x())
         # Zoom in or out by changing the frame width
         # alt switches the angle delta to horizontal, so we use x() instead of y()
         if event.angleDelta().x() > 0:
@@ -276,14 +288,22 @@ class TimelineView(QGraphicsView):
         # Update the scene rect to reflect the new total width of the timeline
         total_width = self.num_frames * self.frame_width
         self.setSceneRect(0, 0, total_width, 60)
-        # get the mouse position in the scene and scroll towards it
-        mouse_pos = self.mapToScene(event.pos())
-        # center the view on the mouse position but by a factor of the zoom
-        self.centerOn(mouse_pos)
         # Redraw the scene to update the frame display
         # move the playhead to the current frame
         self.move_playhead_to_frame(self.playhead.triangle.current_frame)
         # Redraw the scene to update the frame display
+        # scroll such that the frame under the mouse is in the same position
+        # get the new position of the mouse
+        new_frame_at_mouse = self.get_frame_of_x_pos(self.mapToScene(event.pos()).x())
+        # get the difference in x position between the old and new mouse position
+        delta_x = self.get_x_pos_of_frame(og_frame_at_mouse) - self.get_x_pos_of_frame(
+            new_frame_at_mouse
+        )
+        # scroll the view by the difference in x position
+        self.horizontalScrollBar().setValue(
+            int(self.horizontalScrollBar().value() + delta_x)
+        )
+
         self.update()
         self.scene().update()
 
@@ -305,7 +325,6 @@ class TimelineView(QGraphicsView):
         view_pos = self.horizontalScrollBar().value()
         # get the width of the view
         view_width = self.rect().width()
-
         # if the playhead is to the left of the view, scroll left
         if playhead_pos <= view_pos:
             # if we can scroll left by the width of the view, do so
@@ -375,12 +394,21 @@ class TimelineView(QGraphicsView):
                 self.move_playhead_to_frame(frame)
                 self.playhead.triangle.pressed = False
 
+        # if we have items selected, move them with the mouse
+        # if self.scene().selectedItems():
+        #     for item in self.scene().selectedItems():
+        #         if isinstance(item, OnsetOffsetItem):
+        #             if self.lmb_holding:
+        #                 item.multiSelectMoveEvent(mouse_pos, event.scenePos())
+
         self.scene().update()
         super().mouseMoveEvent(event)
 
     def mousePressEvent(self, event):
         # if we're in the top 50 pixels, get the frame at the current mouse position and move the playhead to that frame
         if event.pos().y() < 50 and not self.lmb_holding:
+            # turn off the rubber band selection
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
             # get the current position of the mouse
             mouse_pos = self.mapToScene(event.pos()).x()
             # get the current position of the view
@@ -394,13 +422,13 @@ class TimelineView(QGraphicsView):
                 self.move_playhead_to_frame(frame)
                 self.playhead.triangle.pressed = False
         self.lmb_holding = True
-
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
         self.scene().update()
         self.lmb_holding = False
         self.dragging_playhead = False
+        self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
         super().mouseReleaseEvent(event)
 
     def resizeEvent(self, event) -> None:
@@ -441,7 +469,6 @@ class TimelineView(QGraphicsView):
                 # scroll to the playhead
                 self.scroll_to_playhead()
 
-        # if the curr_behavior_item is not None, highlight the item
         if self.behavior_tracks[0].curr_behavior_item is not None:
             self.behavior_tracks[0].curr_behavior_item.highlight()
 
@@ -455,6 +482,23 @@ class TimelineView(QGraphicsView):
                 track.track_height,
             )
 
+            ################################ LOD RENDERING ################################
+
+            # get the list of items whos onset and item.offset fall outside the visible range
+            self.item_keys_to_hide = {
+                key: track
+                for key in track.behavior_items.keys()
+                if track.behavior_items[key].offset < l
+                or track.behavior_items[key].onset > r
+            }
+            self.item_keys_to_render = {
+                key: track
+                for key in track.behavior_items.keys()
+                if key >= l
+                and key <= r
+                or track.behavior_items[key].offset >= l
+                and track.behavior_items[key].offset <= r
+            }
             for item in track.behavior_items.values():
                 if not item.pressed:
                     item.setPos(
@@ -471,29 +515,13 @@ class TimelineView(QGraphicsView):
 
                     if not item != self.behavior_tracks[0].curr_behavior_item:
                         item.unhighlight()
-            ################################ LOD RENDERING ################################
-
-            # get the list of items whos onset and item.offset fall outside the visible range
-            self.item_keys_to_hide = {
-                key: track
-                for key in track.behavior_items.keys()
-                if track.behavior_items[key].onset < l
-                and track.behavior_items[key].offset > r
-            }
-            self.item_keys_to_render = {
-                key: track
-                for key in track.behavior_items.keys()
-                if key >= l and key <= r
-            }
-
-            # ISSUE: zooming breaks this - items everywhere.
-
+            # TODO: see if we still need this, qt lod rendering might be good enough
             # hide the items that are not in the visible range
             # for item in track.behavior_items.values():
-            #     if item in self.item_keys_to_hide.values():
+            #     if item.onset in self.item_keys_to_hide.keys():
             #         item.hide()
 
-            # # show the items that are in the visible range
+            # show the items that are in the visible range
             # for key in self.item_keys_to_render.keys():
             #     track.behavior_items[key].show()
             #     item = track.behavior_items[key]
@@ -501,7 +529,12 @@ class TimelineView(QGraphicsView):
             #         item.setPos(self.get_x_pos_of_frame(item.onset), self.mapToScene(0,track.y_position).y()+2)
             #         item.setRect(0, 0, self.get_x_pos_of_frame(item.offset) - self.get_x_pos_of_frame(item.onset), track.track_height-4)
 
-        return super().paintEvent(event)
+        out = super().paintEvent(event)
+        # To ensure the selection rect is drawn ontop of everything else, we draw it here
+        # if we have a selection rect, draw it as a semi-transparent gray rect
+        self.selection_rect.raise_()
+
+        return out
 
     def setValue(self, value):
         self.value = value
@@ -522,7 +555,6 @@ class TimelineView(QGraphicsView):
                 self.behavior_tracks[0].curr_behavior_item.set_offset(self.value)
 
         self.move_playhead_to_frame(self.playhead.triangle.current_frame)
-        self.parent.main_win.timestamps_dw.update()
         super().update()
 
 
@@ -536,6 +568,12 @@ class TimelineDockWidget(QDockWidget):
         self.main_win = main_win
         self.setWidget(self.timeline_view)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetMovable)
+        self.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea)
+        self.setFloating(False)
+        self.main_win.loaded.connect(
+            lambda: self.setMinimumHeight(self.timeline_view.track_y_start * 4)
+        )
 
     def set_length(self, length: int):
         self.timeline_view.set_length(length)
@@ -617,8 +655,8 @@ class TimelineDockWidget(QDockWidget):
 
     def delete_selected_timestamp(self):
         # delete the selected timestamp
-        for item in self.timeline_view.behavior_tracks[0].behavior_items.values():
-            if item.isSelected():
+        for item in self.timeline_view.scene().selectedItems():
+            if isinstance(item, OnsetOffsetItem):
                 self.main_win.command_stack.add_command(
                     DeleteBehaviorCommand(
                         self.timeline_view,
@@ -628,8 +666,8 @@ class TimelineDockWidget(QDockWidget):
                 )
                 self.timeline_view.behavior_tracks[0].remove_behavior(item)
                 self.timeline_view.behavior_tracks[0].curr_behavior_item = None
+                self.main_win.timestamps_dw.update()
                 self.timeline_view.scene().update()
-                break
 
     def save_timestamps(self):
 

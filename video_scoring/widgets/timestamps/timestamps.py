@@ -187,7 +187,6 @@ class TsWidget(QtWidgets.QWidget):
         super().__init__()
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
         self.main_win = main_win
-        self.show_tpye: Literal["frame", "time"] = "frame"
 
         # UI Elements
         self.setWindowTitle("Video Behavior Tracker")
@@ -207,12 +206,32 @@ class TsWidget(QtWidgets.QWidget):
             QtWidgets.QAbstractItemView.SelectionMode.SingleSelection
         )
         self.table.setSelectionBehavior(
-            QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows
+            QtWidgets.QAbstractItemView.SelectionBehavior.SelectItems
         )
+
+        self.main_win.loaded.connect(self.init_connections)
 
         self.layout.addWidget(self.table)
 
         self.setLayout(self.layout)
+
+    def init_connections(self):
+        self.table.itemSelectionChanged.connect(self.on_row_selected)
+
+    def on_row_selected(self):
+        item = self.table.selectedItems()
+        if len(item) == 0:
+            return
+        # if the item is in the onset column, move the playhead to the onset
+        if item[0].column() == 0:
+            self.main_win.timeline_dw.timeline_view.move_playhead_to_frame(
+                int(item[0].text())
+            )
+        # if the item is in the offset column, move the playhead to the offset
+        elif item[0].column() == 1:
+            self.main_win.timeline_dw.timeline_view.move_playhead_to_frame(
+                int(item[0].text())
+            )
 
     def update(self):
         """Update the table with the timestamps"""
@@ -264,6 +283,19 @@ class TimeStampsDockwidget(QtWidgets.QDockWidget):
         self.save_act = QtWidgets.QAction(self.main_win._get_icon("save"), "Save", self)
         self.save_act.triggered.connect(self.save)
         self.toolbar.addAction(self.save_act)
+        # add spacer
+        spacer = QtWidgets.QWidget()
+        spacer.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Expanding,
+        )
+        self.toolbar.addWidget(spacer)
+        # add an update button
+        self.update_act = QtWidgets.QAction(
+            self.main_win._get_icon("refresh.svg", svg=True), "Update", self
+        )
+        self.update_act.triggered.connect(self.update)
+        self.toolbar.addAction(self.update_act)
 
         self.table_widget = TsWidget(self.main_win)
         self.main_layout.addWidget(self.table_widget)

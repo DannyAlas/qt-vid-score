@@ -21,12 +21,14 @@ from video_scoring.widgets.progress import ProgressSignals
 from qtpy.QtWidgets import QMainWindow
 
 VERSION = ""
+
+
 class UpdateCheck(QThread):
     update_available = Signal(dict)
     update_error = Signal(str)
     no_update = Signal()
 
-    def __init__(self, version, parent: 'QMainWindow'=None):
+    def __init__(self, version, parent: "QMainWindow" = None):
         super().__init__(parent)
         global VERSION
         VERSION = version

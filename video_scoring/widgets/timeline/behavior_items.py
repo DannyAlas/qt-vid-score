@@ -1,10 +1,15 @@
 from typing import TYPE_CHECKING
 
-from qtpy.QtCore import QObject, QRectF, Qt, QTimer, Signal
-from qtpy.QtGui import QBrush, QColor, QPainter, QPen
-from qtpy.QtWidgets import (QGraphicsItem, QGraphicsRectItem,
-                            QGraphicsSceneHoverEvent, QGraphicsSceneMouseEvent,
-                            QStyleOptionGraphicsItem, QWidget)
+from qtpy.QtCore import QObject, QRectF, Qt, QTimer, Signal, QPointF
+from qtpy.QtGui import QBrush, QColor, QPainter, QPen, QMouseEvent
+from qtpy.QtWidgets import (
+    QGraphicsItem,
+    QGraphicsRectItem,
+    QGraphicsSceneHoverEvent,
+    QGraphicsSceneMouseEvent,
+    QStyleOptionGraphicsItem,
+    QWidget,
+)
 
 from video_scoring.command_stack import Command
 
@@ -112,7 +117,9 @@ class OnsetOffsetItem(QGraphicsRectItem):
         return self._offset
 
     def _drag_left_edge(self, event: QGraphicsSceneMouseEvent) -> None:
-        scene_x: QPointF = self.mapToScene(event.pos() - self.last_mouse_pos).x()
+        scene_x: QPointF = self.mapToScene(
+            QPointF(event.pos()) - self.last_mouse_pos
+        ).x()
         nearest_frame = self.view.get_frame_of_x_pos(scene_x)
 
         # Ensure the onset is not before the beginning of the video
@@ -154,7 +161,10 @@ class OnsetOffsetItem(QGraphicsRectItem):
         new_width = (
             round(
                 # get the x position of the mouse in the scene, but don't let it exceed the right edge of the scene
-                min(self.mapToScene(event.pos()).x(), self.view.sceneRect().right())
+                min(
+                    self.mapToScene(QPointF(event.pos())).x(),
+                    self.view.sceneRect().right(),
+                )
                 # Snap the x position to the nearest frame by dividing by the frame width,
                 # rounding to the nearest frame, then multiplying by the frame width
                 / self.view.frame_width
@@ -175,7 +185,9 @@ class OnsetOffsetItem(QGraphicsRectItem):
         self.setRect(
             self.rect().left(), self.rect().top(), new_width, self.rect().height()
         )
-        n_offset = int(self.mapToScene(event.pos()).x() / self.view.frame_width) + 1
+        n_offset = (
+            int(self.mapToScene(QPointF(event.pos())).x() / self.view.frame_width) + 1
+        )
 
         if self.parent.overlap_with_item_check(self, offset=n_offset):
             self.setRect(
@@ -185,7 +197,9 @@ class OnsetOffsetItem(QGraphicsRectItem):
             self.set_offset(new_offset=n_offset)
 
     def _drag_item(self, event: QGraphicsSceneMouseEvent) -> None:
-        scene_x: QPointF = self.mapToScene(event.pos() - self.last_mouse_pos).x()
+        scene_x: QPointF = self.mapToScene(
+            QPointF(event.pos()) - self.last_mouse_pos
+        ).x()
         new_x = self.view.get_x_pos_of_frame(self.view.get_frame_of_x_pos(scene_x))
 
         if new_x < 0:

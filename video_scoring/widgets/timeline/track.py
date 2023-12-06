@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING, Literal, Optional
 
 from qtpy.QtGui import QBrush, QColor
-from qtpy.QtWidgets import QGraphicsItem, QGraphicsRectItem
+from qtpy.QtWidgets import QGraphicsItem, QGraphicsRectItem, QGraphicsSceneMouseEvent
 
 from video_scoring.widgets.timeline.behavior_items import OnsetOffsetItem
 
@@ -24,10 +24,10 @@ class BehaviorTrack(QGraphicsRectItem):
         self.y_position = y_position
         self.track_height = track_height
         self.behavior_type = behavior_type
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, False)
-        self.setAcceptHoverEvents(True)
+        # self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+        # self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
+        # self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, False)
+        # self.setAcceptHoverEvents(True)
         # dark gray background
         self.setBrush(QBrush(QColor("#545454")))
 
@@ -127,3 +127,15 @@ class BehaviorTrack(QGraphicsRectItem):
         """
         if onset != item.onset:
             self.behavior_items[onset] = self.behavior_items.pop(item.onset)
+
+    def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent | None) -> None:
+        print("track mouse move event")
+        return super().mouseMoveEvent(event)
+
+    def mousePressEvent(self, event: QGraphicsSceneMouseEvent | None) -> None:
+        print("track mouse press event")
+        return super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent | None) -> None:
+        print("track mouse release event")
+        return super().mouseReleaseEvent(event)

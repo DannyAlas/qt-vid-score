@@ -141,14 +141,18 @@ class MainWindow(QMainWindow):
         subprocess.Popen(installer_file, shell=True)
         self.close()
 
-    def _get_icon(self, icon_name, as_string=False):
+    def _get_icon(self, icon_name, as_string=False, svg=False):
         if self.project_settings.theme == "dark":
-            icon_path = os.path.join(self.icons_dir, "dark", icon_name)
+            if svg:
+                icon_path = os.path.join(self.icons_dir, "themes", "Dark", icon_name)
+                print(icon_path)
+            else: icon_path = os.path.join(self.icons_dir, "dark", icon_name)
         elif self.project_settings.theme == "light":
-            icon_path = os.path.join(self.icons_dir, icon_name)
+            if svg:
+                icon_path = os.path.join(self.icons_dir, "themes", "Light", icon_name)
+            else: icon_path = os.path.join(self.icons_dir, icon_name)
         elif self.project_settings.theme == "auto":
             icon_path = os.path.join(self.icons_dir, "dark", icon_name)
-
         else:
             raise Exception(f"Theme {self.project_settings.theme} not recognized")
         if not as_string:

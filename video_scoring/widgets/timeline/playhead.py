@@ -33,8 +33,17 @@ class DraggableTriangle(QGraphicsPolygonItem):
         self.setFlag(QGraphicsLineItem.GraphicsItemFlag.ItemIsMovable, True)
         self.setAcceptHoverEvents(True)
         self.setFlag(QGraphicsLineItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
-        self.current_frame = 0
+        self._current_frame = 0
         self.pressed = False
+
+    @property
+    def current_frame(self):
+        return self._current_frame
+
+    @current_frame.setter
+    def current_frame(self, value):
+        self._current_frame = value
+        self.setX(value)
 
     def mousePressEvent(self, event):
         self.pressed = True
