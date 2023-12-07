@@ -11,14 +11,13 @@ from pathlib import Path
 from zipfile import ZipFile
 
 import markdown2
-from pydantic import VERSION
 import requests
+from pydantic import VERSION
 from qtpy import QtCore, QtWidgets
 from qtpy.QtCore import Qt, QThread, Signal
-from qtpy.QtWidgets import QDialog, QPushButton
+from qtpy.QtWidgets import QDialog, QMainWindow, QPushButton
 
 from video_scoring.widgets.progress import ProgressSignals
-from qtpy.QtWidgets import QMainWindow
 
 VERSION = ""
 

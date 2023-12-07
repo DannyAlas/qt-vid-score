@@ -1,7 +1,12 @@
 from typing import TYPE_CHECKING, Literal, Optional
 
 from qtpy.QtGui import QBrush, QColor
-from qtpy.QtWidgets import QGraphicsItem, QGraphicsRectItem, QGraphicsSceneMouseEvent
+from qtpy.QtWidgets import (
+    QGraphicsItem,
+    QGraphicsRectItem,
+    QGraphicsSceneMouseEvent,
+    QGraphicsTextItem,
+)
 
 from video_scoring.widgets.timeline.behavior_items import OnsetOffsetItem
 
@@ -21,14 +26,12 @@ class BehaviorTrack(QGraphicsRectItem):
         super().__init__()
         self.parent = parent
         self.name = name
+        self.track_name_item = QGraphicsTextItem(self.name)
         self.y_position = y_position
         self.track_height = track_height
         self.behavior_type = behavior_type
-        # self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
-        # self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
-        # self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, False)
-        # self.setAcceptHoverEvents(True)
-        # dark gray background
+        # have the name of the track be the tooltip and be on the left side of the track
+        self.setToolTip(name)
         self.setBrush(QBrush(QColor("#545454")))
 
         # a dict of behavior items where the key is the onset frame and the value is the item
@@ -129,13 +132,28 @@ class BehaviorTrack(QGraphicsRectItem):
             self.behavior_items[onset] = self.behavior_items.pop(item.onset)
 
     def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent | None) -> None:
-        print("track mouse move event")
         return super().mouseMoveEvent(event)
 
     def mousePressEvent(self, event: QGraphicsSceneMouseEvent | None) -> None:
-        print("track mouse press event")
         return super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent | None) -> None:
-        print("track mouse release event")
         return super().mouseReleaseEvent(event)
+
+    def load(self, data: dict):
+        self.name = data["name"]
+        self.y_position = data["y_position"]
+        self.track_height = data["track_height"]
+        self.behavior_type = data["behavior_type"]
+        for item_data in data["behavior_items"]:
+            i = self.add_behavior(item_data["onset"])
+            i.set_offset(item_data["offset"])
+
+    def save(self):
+        return {
+            "name": self.name,
+            "y_position": self.y_position,
+            "track_height": self.track_height,
+            "behavior_type": self.behavior_type,
+            "behavior_items": [item.save() for item in self.behavior_items.values()],
+        }

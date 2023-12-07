@@ -3,16 +3,16 @@ from tkinter import E
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
-from qtpy import QtCore
+from qtpy import QtCore, QtGui, QtWidgets
 from qtpy.QtCore import QObject, Qt, QThread, QUrl, Signal, Slot
 from qtpy.QtGui import QBrush, QImage, QPainter, QPixmap
 from qtpy.QtWidgets import (
     QDockWidget,
+    QHBoxLayout,
     QLabel,
     QPushButton,
     QSizePolicy,
     QSlider,
-    QStyleOptionSlider,
     QVBoxLayout,
     QWidget,
 )
@@ -164,19 +164,83 @@ class PlayerControls(QWidget):
         self.setLayout(self.layout)
         self.frame_label = QLabel("0")
         self.frame_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # controls toolbar
+        self.controls_toolbar = QtWidgets.QToolBar()
+        self.controls_toolbar.setToolButtonStyle(
+            QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly
+        )
+        self.controls_toolbar.setMovable(False)
+        self.controls_toolbar.setFloatable(False)
+        self.controls_toolbar.setOrientation(QtCore.Qt.Orientation.Horizontal)
+        self.controls_toolbar.setAllowedAreas(QtCore.Qt.ToolBarArea.BottomToolBarArea)
+        # center the items in the controls toolbar
+        left_spacer = QtWidgets.QWidget()
+        left_spacer.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self.controls_toolbar.addWidget(left_spacer)
+        # seek back large frames
+        self.seek_back_large_frames_action = QtWidgets.QAction(
+            self.vpdw.main_win._get_icon("seek-backward-long-button.png"),
+            f"Seek back large frames ({self.vpdw.main_win.project_settings.playback.seek_video_large})",
+            self.controls_toolbar,
+        )
+        self.seek_back_large_frames_action.triggered.connect(
+            self.vpdw.seek_back_medium_frames
+        )
+        self.controls_toolbar.addAction(self.seek_back_large_frames_action)
+
+        # seek back medium frames
+        self.seek_back_small_frames_action = QtWidgets.QAction(
+            self.vpdw.main_win._get_icon("seek-backward-button.png"),
+            f"Seek back small frames ({self.vpdw.main_win.project_settings.playback.seek_timestamp_small})",
+            self.controls_toolbar,
+        )
+        self.seek_back_small_frames_action.triggered.connect(
+            self.vpdw.seek_back_small_frames
+        )
+        self.controls_toolbar.addAction(self.seek_back_small_frames_action)
+
+        # play/pause button
         self.play_button = QPushButton("Play")
-        self.play_button.setCheckable(True)
         self.play_button.clicked.connect(self.vpdw.toggle_play)
+        self.controls_toolbar.addWidget(self.play_button)
+
+        # seek forward medium frames
+        self.seek_forward_small_frames_action = QtWidgets.QAction(
+            self.vpdw.main_win._get_icon("seek-forward-button.png"),
+            f"Seek forward small frames ({self.vpdw.main_win.project_settings.playback.seek_video_small})",
+            self.controls_toolbar,
+        )
+        self.seek_forward_small_frames_action.triggered.connect(
+            self.vpdw.seek_forward_small_frames
+        )
+        self.controls_toolbar.addAction(self.seek_forward_small_frames_action)
+
+        # seek forward large frames
+        self.seek_forward_medium_frames_action = QtWidgets.QAction(
+            self.vpdw.main_win._get_icon("seek-forward-long-button.png"),
+            f"Seek forward medium frames ({self.vpdw.main_win.project_settings.playback.seek_timestamp_small})",
+            self.controls_toolbar,
+        )
+        self.seek_forward_medium_frames_action.triggered.connect(
+            self.vpdw.seek_forward_medium_frames
+        )
+        self.controls_toolbar.addAction(self.seek_forward_medium_frames_action)
         self.layout.addWidget(self.frame_label)
-        self.layout.addWidget(self.play_button)
+        self.layout.addWidget(self.controls_toolbar)
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.setSpacing(1)
         self.frame_label.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
-        self.play_button.setSizePolicy(
+        # center the controls toolbar
+        right_spacer = QtWidgets.QWidget()
+        right_spacer.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
+        self.controls_toolbar.addWidget(right_spacer)
 
     def set_label(self):
         if self.vpdw.video_widget.play_worker is None:
@@ -193,16 +257,72 @@ class PlayerControls(QWidget):
             )
 
 
+class VideoPlayerSettingsWidget(QWidget):
+    def __init__(
+        self, main_win: "MainWindow", video_widget: "VideoWidget", parent=None
+    ):
+        super(VideoPlayerSettingsWidget, self).__init__(parent)
+        # a series of tab on the right side of this widget
+        self.main_win = main_win
+        self.video_widget = video_widget
+        self.layout = QVBoxLayout()
+        self.setLayout(self.layout)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(0)
+        self.tabs = QtWidgets.QTabWidget()
+        self.layout.addWidget(self.tabs)
+        self.tabs.setTabPosition(QtWidgets.QTabWidget.TabPosition.West)
+
+    def init_tabs(self):
+        # the playback tab, a form layout with a series of settings taken from the cv2.VideoCapture class
+        self.playback_tab = QWidget()
+        self.playback_tab.layout = QtWidgets.QFormLayout()
+        self.playback_tab.setLayout(self.playback_tab.layout)
+
+        # add row for video file
+        row = QLabel(f"Video File: {self.video_widget.video_file}")
+        row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.playback_tab.layout.addRow(row)
+
+        cv2_props = [
+            "CAP_PROP_POS_MSEC",
+            "Current Frame",
+            "Relative Position",
+            "Frame Width",
+            "Frame Height",
+            "Frame Rate",
+            "4-character code of codec",
+            "Number of frames in the video file",
+        ]
+        for prop in range(len(cv2_props)):
+            val = self.video_widget.play_worker.vc.vc.get(prop)
+            if val != 0:
+                row = QLabel(f"{cv2_props[prop]}: {val}")
+                row.setSizePolicy(
+                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+                )
+                self.playback_tab.layout.addRow(row)
+                self.playback_tab.layout.addRow(row)
+        self.tabs.addTab(self.playback_tab, "Playback")
+
+
 class VideoPlayerDockWidget(QDockWidget):
     def __init__(self, main_win: "MainWindow", parent=None):
         super(VideoPlayerDockWidget, self).__init__(parent)
         self.setWindowTitle("Video Player")
         self.main_win = main_win
+        self.tool_bar = QtWidgets.QToolBar()
+        self.tool_bar.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.tool_bar.setMovable(False)
+        self.tool_bar.setFloatable(False)
+        self.tool_bar.setOrientation(QtCore.Qt.Orientation.Horizontal)
+        self.tool_bar.setAllowedAreas(QtCore.Qt.ToolBarArea.TopToolBarArea)
         self.video_widget = VideoWidget(self)
         self.player_controls = PlayerControls(self)
         self.started = False
         # set the layout
         self.layout = QVBoxLayout()
+        self.layout.addWidget(self.tool_bar)
         self.layout.addWidget(self.video_widget)
         self.layout.addWidget(self.player_controls)
         self.layout.setContentsMargins(0, 0, 0, 0)
@@ -219,6 +339,23 @@ class VideoPlayerDockWidget(QDockWidget):
         if self.started:
             self.timeline.set_length(self.video_widget.play_worker.vc.len)
             self.toggle_play()
+        self.fps_label = QLabel(f"FPS: {self.video_widget.play_worker.vc.fps}")
+        self.tool_bar.addWidget(self.fps_label)
+        center_spacer = QtWidgets.QWidget()
+        center_spacer.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self.tool_bar.addWidget(center_spacer)
+        self.info_button = QPushButton(
+            self.main_win._get_icon("cogs.svg", svg=True), "Info"
+        )
+        self.info_button.clicked.connect(self.open_info)
+        self.tool_bar.addWidget(self.info_button)
+
+    def open_info(self):
+        self.info_widget = VideoPlayerSettingsWidget(self.main_win, self.video_widget)
+        self.info_widget.init_tabs()
+        self.info_widget.show()
 
     def start(self, video_file):
         try:
@@ -312,6 +449,7 @@ class VideoPlayerDockWidget(QDockWidget):
             self.video_widget.play_worker.vc.fps
             + self.main_win.project_settings.playback.playback_speed_modulator
         )
+        self.fps_label.setText(f"FPS: {self.video_widget.play_worker.vc.fps}")
         self.toggle_play()
 
     def decrease_playback_speed(self):
@@ -322,6 +460,7 @@ class VideoPlayerDockWidget(QDockWidget):
             self.video_widget.play_worker.vc.fps
             - self.main_win.project_settings.playback.playback_speed_modulator
         )
+        self.fps_label.setText(f"FPS: {self.video_widget.play_worker.vc.fps}")
         self.toggle_play()
 
     def timelineChanged(self, value):

@@ -7,6 +7,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel
 
+from video_scoring.widgets.timeline import behavior_items
+
 log = logging.getLogger()
 
 
@@ -367,6 +369,16 @@ class TDTData:
         return frame_ts
 
 
+class OOBehaviorItemSetting(AbstSettings):
+    onset: int = 0
+    offset: int = 0
+
+
+class BehaviorTrackSetting(AbstSettings):
+    name: str = ""
+    behavior_items: List[OOBehaviorItemSetting] = []
+
+
 class ScoringData(AbstSettings):
     """Represents the data associated with a scoring session"""
 
@@ -375,6 +387,13 @@ class ScoringData(AbstSettings):
     video_file_name: str = ""
     timestamp_file_location: str = ""
     timestamp_data: dict = {}
+    scoring_type: Literal["onset/offset", "single"] = "onset/offset"
+    behavior_tracks: List[BehaviorTrackSetting] = []
+
+    def __init__(self, **data: Any):
+        super().__init__(**data)
+        if self.uid == "":
+            self.uid = str(uuid4())
 
 
 class ProjectSettings(AbstSettings):
@@ -432,4 +451,5 @@ class ProjectSettings(AbstSettings):
             "window_size": "Size of the main window",
             "window_position": "Position of the main window",
             "scoring_data": "Data associated with the scoring session",
+            "behavior_tracks": "Tracks of behaviors",
         }

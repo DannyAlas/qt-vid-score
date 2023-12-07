@@ -145,12 +145,13 @@ class MainWindow(QMainWindow):
         if self.project_settings.theme == "dark":
             if svg:
                 icon_path = os.path.join(self.icons_dir, "themes", "Dark", icon_name)
-                print(icon_path)
-            else: icon_path = os.path.join(self.icons_dir, "dark", icon_name)
+            else:
+                icon_path = os.path.join(self.icons_dir, "dark", icon_name)
         elif self.project_settings.theme == "light":
             if svg:
                 icon_path = os.path.join(self.icons_dir, "themes", "Light", icon_name)
-            else: icon_path = os.path.join(self.icons_dir, icon_name)
+            else:
+                icon_path = os.path.join(self.icons_dir, icon_name)
         elif self.project_settings.theme == "auto":
             icon_path = os.path.join(self.icons_dir, "dark", icon_name)
         else:
@@ -196,6 +197,8 @@ class MainWindow(QMainWindow):
         title: str = "Progress Bar",
         completed_msg: str = "Completed",
     ):
+        # clear the status bar
+        self.status_bar.clearMessage()
         self.pbar = ProgressBar(signals, title, completed_msg, self)
         self.pbar.start_progress()
 
@@ -239,6 +242,8 @@ class MainWindow(QMainWindow):
         if self.help_menu is None:
             raise Exception("Failed to create help menu")
         self.help_menu.addAction("Help", self.help)
+        self.report_bug_action = self.help_menu.addAction("Report Bug", self.report_bug)
+        self.help_menu.addSeparator()
         self.help_menu.addAction("About", self.about)
 
     def create_main_widget(self):
@@ -355,6 +360,13 @@ class MainWindow(QMainWindow):
             QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self.timeline_dw
         )
         self.dock_widgets_menu.addAction(self.timeline_dw.toggleViewAction())
+        from video_scoring.widgets.analysis import VideoAnalysisDock
+
+        self.analysis_dw = VideoAnalysisDock(self)
+        self.addDockWidget(
+            QtCore.Qt.DockWidgetArea.LeftDockWidgetArea, self.analysis_dw
+        )
+        self.dock_widgets_menu.addAction(self.analysis_dw.toggleViewAction())
 
     def open_settings_widget(self):
         if not hasattr(self, "settings_dock_widget"):
@@ -393,8 +405,7 @@ class MainWindow(QMainWindow):
             self.init_handlers()
 
         if action not in self.shortcut_handlers.keys():
-            self.update_status(f"Action {action} not found in shortcut handlers")
-            # print(f"Action {action} not found in shortcut handlers")
+            # self.update_status(f"Action {action} not found in shortcut handlers")
             return
         # if the action is already registered, update the key sequence
         if action in [
@@ -441,7 +452,6 @@ class MainWindow(QMainWindow):
                 )
             except Exception as e:
                 desktop = QtWidgets.QApplication.screens()[0].geometry()
-                print(desktop.width(), desktop.height())
                 self.project_settings.window_size = (
                     desktop.width() / 2,
                     desktop.height() / 2,
@@ -457,7 +467,6 @@ class MainWindow(QMainWindow):
         else:
             # resize ourselves to half the screen and center ourselves
             desktop = QtWidgets.QApplication.screens()[0].geometry()
-            print(desktop.width(), desktop.height())
             self.project_settings.window_size = (
                 desktop.width() / 2,
                 desktop.height() / 2,
@@ -542,11 +551,30 @@ class MainWindow(QMainWindow):
             int(self.project_settings.window_position[1]),
         )
         self.change_theme(self.project_settings.theme)
-        self.loaded.connect(
-            lambda: self.timeline_dw.load_timestamps(
-                self.project_settings.scoring_data.timestamp_data
+        self.loaded.connect(lambda: self.timeline_dw.load())
+        # BACKWARDS COMPATIBILITY
+        if self.project_settings.scoring_data.timestamp_data != {}:
+            self.loaded.connect(self.migrate_timestamp_data)
+
+    def migrate_timestamp_data(self):
+        self.timeline_dw.timeline_view.add_behavior_track("OLD TIMESTAMP")
+        for onset, offset in self.project_settings.scoring_data.timestamp_data.items():
+            self.timeline_dw.timeline_view.add_oo_behavior(
+                onset=int(onset),
+                offset=int(offset),
+                track_idx=self.timeline_dw.timeline_view.get_track_idx_from_name(
+                    "OLD TIMESTAMP"
+                ),
             )
+        # msg box to tell the user that the timestamp data has been moved to the timeline
+        msg = QtWidgets.QMessageBox()
+        msg.setWindowTitle("Migrated Timestamp Data")
+        msg.setText(
+            "Your timestamp data has been migrated to the timeline named `OLD TIMESTAMPS` for compatibility"
         )
+        msg.setIcon(QtWidgets.QMessageBox.Icon.Information)
+        msg.exec()
+        self.project_settings.scoring_data.timestamp_data = {}
 
     def save_settings(self, file_location=None):
         self.qt_settings.setValue(
@@ -554,9 +582,7 @@ class MainWindow(QMainWindow):
         )
         self.project_settings.window_size = (self.width(), self.height())
         self.project_settings.window_position = (self.x(), self.y())
-        self.project_settings.scoring_data.timestamp_data = (
-            self.timeline_dw.save_timestamps()
-        )
+        self.project_settings.scoring_data.behavior_tracks = self.timeline_dw.save()
         self.update_log_file()
         self.project_settings.save(file_location)
 
@@ -602,7 +628,12 @@ class MainWindow(QMainWindow):
 
     def help(self):
         # open browser to github
-        help_url = QUrl("https://danielalas.com")
+        help_url = QUrl("https://github.com/DannyAlas/qt-vid-score")
+        QtGui.QDesktopServices.openUrl(help_url)
+
+    def report_bug(self):
+        # open browser to github issues
+        help_url = QUrl("https://github.com/DannyAlas/qt-vid-score/issues")
         QtGui.QDesktopServices.openUrl(help_url)
 
     def about(self):

@@ -183,11 +183,11 @@ class customTableWidget(QtWidgets.QTableWidget):
 
 
 class TsWidget(QtWidgets.QWidget):
-    def __init__(self, main_win: "MainWindow"):
+    def __init__(self, main_win: "MainWindow", ts_dw: "TimeStampsDockwidget"):
         super().__init__()
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
         self.main_win = main_win
-
+        self.ts_dw = ts_dw
         # UI Elements
         self.setWindowTitle("Video Behavior Tracker")
         self.layout = QtWidgets.QVBoxLayout()
@@ -236,8 +236,10 @@ class TsWidget(QtWidgets.QWidget):
     def update(self):
         """Update the table with the timestamps"""
         # clear the table
+        if len(self.main_win.timeline_dw.timeline_view.behavior_tracks) == 0:
+            return
         ts_behaviors = self.main_win.timeline_dw.timeline_view.behavior_tracks[
-            0
+            self.ts_dw.behavior_track_combo.currentIndex()
         ].behavior_items
         ts_behaviors_sorted = dict(sorted(ts_behaviors.items(), key=lambda x: x[0]))
         tb_onsets = [str(onset) for onset in ts_behaviors_sorted.keys()]
@@ -283,6 +285,10 @@ class TimeStampsDockwidget(QtWidgets.QDockWidget):
         self.save_act = QtWidgets.QAction(self.main_win._get_icon("save"), "Save", self)
         self.save_act.triggered.connect(self.save)
         self.toolbar.addAction(self.save_act)
+        # add dropdown to select the behavior track
+        self.behavior_track_combo = QtWidgets.QComboBox()
+        self.behavior_track_combo.currentTextChanged.connect(self.update)
+        self.toolbar.addWidget(self.behavior_track_combo)
         # add spacer
         spacer = QtWidgets.QWidget()
         spacer.setSizePolicy(
@@ -292,17 +298,32 @@ class TimeStampsDockwidget(QtWidgets.QDockWidget):
         self.toolbar.addWidget(spacer)
         # add an update button
         self.update_act = QtWidgets.QAction(
-            self.main_win._get_icon("refresh.svg", svg=True), "Update", self
+            self.main_win._get_icon("refresh.svg", svg=True), "Refresh", self
         )
-        self.update_act.triggered.connect(self.update)
+        self.update_act.triggered.connect(self.refresh)
         self.toolbar.addAction(self.update_act)
 
-        self.table_widget = TsWidget(self.main_win)
+        self.table_widget = TsWidget(self.main_win, self)
         self.main_layout.addWidget(self.table_widget)
+        self.main_win.loaded.connect(self.init_connections)
+
+    def init_connections(self):
+        self.main_win.timeline_dw.timeline_view.behavior_tracks_changed.connect(
+            self.update_tracks
+        )
+        self.update()
+
+    def update_tracks(self):
+        self.behavior_track_combo.clear()
+        for track in self.main_win.timeline_dw.timeline_view.behavior_tracks:
+            self.behavior_track_combo.addItem(track.name)
 
     def update(self):
         self.table_widget.update()
-        # scroll to the bottom of the table
+
+    def refresh(self):
+        self.update_tracks()
+        self.table_widget.update()
 
     def save(self):
         # save the table to a csv file

@@ -1,8 +1,8 @@
+import argparse
 import logging
 import sys
 import traceback as tb
 
-import argparse
 import qdarktheme
 from qtpy.QtWidgets import QApplication
 

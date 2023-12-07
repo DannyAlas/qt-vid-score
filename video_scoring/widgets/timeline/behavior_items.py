@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
-from qtpy.QtCore import QObject, QRectF, Qt, QTimer, Signal, QPointF
-from qtpy.QtGui import QBrush, QColor, QPainter, QPen, QMouseEvent
+from qtpy.QtCore import QObject, QPointF, QRectF, Qt, QTimer, Signal
+from qtpy.QtGui import QBrush, QColor, QMouseEvent, QPainter, QPen
 from qtpy.QtWidgets import (
     QGraphicsItem,
     QGraphicsRectItem,
@@ -421,3 +421,9 @@ class OnsetOffsetItem(QGraphicsRectItem):
         # painter.drawText(int(self.rect().left()), int(self.rect().top())+10, str(self.onset))
         # # on the right edge, draw our offset frame
         # painter.drawText(int(self.rect().width())-30, int(self.rect().top())+10, str(self.offset))
+
+    def save(self):
+        return {
+            "onset": self.onset,
+            "offset": self.offset,
+        }
