@@ -314,7 +314,7 @@ class OnsetOffsetItem(QGraphicsRectItem):
     def mouseReleaseEvent(self, event):
         self.pressed = False
         if (
-            self.cur_move_command.undo_offset != self.onset
+            self.cur_move_command.undo_onset != self.onset
             or self.cur_move_command.undo_offset != self.offset
         ):
             self.cur_move_command.redo_onset = self.onset
