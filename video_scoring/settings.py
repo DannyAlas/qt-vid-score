@@ -390,11 +390,6 @@ class ScoringData(AbstSettings):
     scoring_type: Literal["onset/offset", "single"] = "onset/offset"
     behavior_tracks: List[BehaviorTrackSetting] = []
 
-    def __init__(self, **data: Any):
-        super().__init__(**data)
-        if self.uid == "":
-            self.uid = str(uuid4())
-
 
 class ProjectSettings(AbstSettings):
     project_name: str = ""
