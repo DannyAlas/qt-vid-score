@@ -27,7 +27,7 @@ OutputBaseFilename=setup_{#MyAppName}_{#MyAppVersion}
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
-SetupIconFile=C:\dev\projects\qt-vid-scoring\qt-vid-score\video_scoring\resources\icon_gray.ico
+SetupIconFile=C:\dev\projects\qt-vid-scoring\resources\icon_gray.ico
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
