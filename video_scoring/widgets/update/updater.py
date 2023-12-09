@@ -207,7 +207,6 @@ class Updater(QThread):
                 for data in response.iter_content(chunk_size=4096):
                     dl += len(data)
                     f.write(data)
-                    print(dl / total_length * 100)
                     self.progress_signals.progress.emit(int(dl / total_length * 100))
         except Exception as e:
             self.update_error.emit(f"Error downloading update: {e}")
