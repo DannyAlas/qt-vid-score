@@ -12,8 +12,8 @@ if TYPE_CHECKING:
     from video_scoring import MainWindow
 
 
-class MotionAnalysis(QtCore.QThread):
-    complete = QtCore.Signal(list)
+class MotionAnalysis(QtCore.QObject):
+    complete = QtCore.Signal(list or None)
 
     def __init__(
         self,
@@ -23,6 +23,8 @@ class MotionAnalysis(QtCore.QThread):
         dsmpl_ratio=1,
         motion_threshold=10,
         gaussian_sigma=1,
+        freezing_threshold=200,
+        min_duration=15,
     ):
         super().__init__()
         self.file_path = file_path
@@ -31,6 +33,8 @@ class MotionAnalysis(QtCore.QThread):
         self.dsmpl_ratio = dsmpl_ratio
         self.motion_threshold = motion_threshold
         self.gaussian_sigma = gaussian_sigma
+        self.freezing_threshold = freezing_threshold
+        self.min_duration = min_duration
         self.progress_signal = ProgressSignals()
 
     def run(self):
@@ -55,10 +59,10 @@ class MotionAnalysis(QtCore.QThread):
         frame_new = cv2.GaussianBlur(
             frame_new.astype("float"), (0, 0), self.gaussian_sigma
         )
-        Motion = np.zeros(cap_max - self.start_frame)
+        self.motion = np.zeros(cap_max - self.start_frame)
 
         # Loop through frames to detect frame by frame differences
-        for x in range(1, len(Motion)):
+        for x in range(1, len(self.motion)):
             frame_old = frame_new
             ret, frame_new = cap.read()
             if ret == True:
@@ -78,30 +82,14 @@ class MotionAnalysis(QtCore.QThread):
                 )
                 frame_dif = np.absolute(frame_new - frame_old)
                 frame_cut = (frame_dif > self.motion_threshold).astype("uint8")
-                Motion[x] = np.sum(frame_cut)
+                self.motion[x] = np.sum(frame_cut)
             else:
                 # if no frame is detected
                 x = x - 1  # Reset x to last frame detected
-                Motion = Motion[:x]  # Amend length of motion vector
+                self.motion = self.motion[:x]  # Amend length of motion vector
                 break
-            self.progress_signal.progress.emit(int((x / len(Motion)) * 100))
+            self.progress_signal.progress.emit(int((x / len(self.motion)) * 100))
 
-        cap.release()  # release video
-        self.progress_signal.complete.emit()
-        self.complete.emit(Motion)
-
-
-class FreezingAnalysis(QtCore.QThread):
-    complete = QtCore.Signal(list)
-
-    def __init__(self, motion_list, freezing_threshold=200, min_duration=15):
-        super().__init__()
-        self.motion = motion_list
-        self.freezing_threshold = freezing_threshold
-        self.min_duration = min_duration
-
-    def run(self):
-        # Find frames below thresh
         BelowThresh = (np.asarray(self.motion) < self.freezing_threshold).astype(int)
 
         # Perform local cumulative thresh detection
@@ -123,18 +111,12 @@ class FreezingAnalysis(QtCore.QThread):
                 and Freezing[x + 1] < self.min_duration
             ):
                 Freezing[x] = Freezing[x + 1] + 1
-            # the percentage as a portion between 50 and 100
-            # Reverse index calculation
-            reverse_index = len(Freezing) - 1 - x
 
-            # Calculate progress in the range 0 to 50
-            progress_0_to_50 = (reverse_index / (len(Freezing) - 1)) * 50
-
-            # Shift the progress to range from 50 to 100
-            progress_50_to_100 = 50 + progress_0_to_50
         Freezing = (Freezing > 0).astype(int)
         Freezing = Freezing * 100  # Convert to Percentage
 
+        cap.release()  # release video
+        self.progress_signal.complete.emit()
         self.complete.emit(Freezing)
 
 
@@ -220,47 +202,44 @@ class FreezingWidget(QtWidgets.QWidget):
         # create new thread
         # change the button to say cancel
         # when the thread is complete, change the button back to analyze
-        self.analyze_button.setText("Cancel")
-        self.analyze_button.clicked.connect(self.cancel)
-        self.motion_thread = MotionAnalysis(
-            self.fpath,
-            self.start,
-            self.end,
-            self.dsmpl,
-            self.motion_thresh.value(),
-            self.motion_sigma.value(),
-        )
-        self.motion_thread.complete.connect(lambda x: self.motion_thread_complete(x))
-        self.motion_thread.started.connect(
-            lambda: self.main_win.start_pbar(
-                title="Analyzing Motion",
-                completed_msg="Motion Analysis Complete",
-                signals=self.motion_thread.progress_signal,
+        if hasattr(self, "motion_analyzer"):
+            self.motion_analyzer.file_path = self.fpath
+            self.motion_analyzer.start_frame = self.start
+            self.motion_analyzer.end_frame = self.end
+            self.motion_analyzer.dsmpl_ratio = self.dsmpl
+            self.motion_analyzer.motion_threshold = self.motion_thresh.value()
+            self.motion_analyzer.gaussian_sigma = self.motion_sigma.value()
+            self.motion_analyzer.freezing_threshold = self.freezing_thresh.value()
+            self.motion_analyzer.min_duration = self.min_duration.value()
+        else:
+            self.motion_analyzer_thread = QtCore.QThread()
+            self.motion_analyzer = MotionAnalysis(
+                self.fpath,
+                self.start,
+                self.end,
+                self.dsmpl,
+                self.motion_thresh.value(),
+                self.motion_sigma.value(),
+                self.freezing_thresh.value(),
+                self.min_duration.value(),
             )
-        )
-        self.motion_thread.start()
+            self.motion_analyzer.moveToThread(self.motion_analyzer_thread)
+            self.motion_analyzer_thread.started.connect(self.motion_analyzer.run)
+            self.motion_analyzer.complete.connect(self.motion_analyzer_complete)
+            self.motion_analyzer.complete.connect(self.motion_analyzer_thread.quit)
+            self.motion_analyzer_thread.started.connect(
+                lambda: self.main_win.start_pbar(
+                    title="Analyzing Motion",
+                    completed_msg="Motion Analysis Complete",
+                    signals=self.motion_analyzer.progress_signal,
+                )
+            )
+        # disable the analyze button
+        self.analyze_button.setText("Cancel")
+        self.analyze_button.setEnabled(False)
+        self.motion_analyzer_thread.start()
 
-    def motion_thread_complete(self, motion):
-        self.motion = motion
-        self.freezing_thread = FreezingAnalysis(
-            self.motion, self.freezing_thresh.value(), self.min_duration.value()
-        )
-        self.freezing_thread.complete.connect(
-            lambda x: self.freezing_thread_complete(x)
-        )
-        self.freezing_thread.start()
-
-    def cancel(self):
-        if hasattr(self, "motion_thread") and self.motion_thread.isRunning():
-            self.motion_thread.terminate()
-        if hasattr(self, "freezing_thread") and self.freezing_thread.isRunning():
-            self.motion_thread.terminate()
-
-        self.analyze_button.setText("Analyze")
-        self.analyze_button.clicked.connect(self.analyze)
-        self.main_win.status_bar.showMessage("Freezing Analysis Canceled")
-
-    def freezing_thread_complete(self, freezing):
+    def motion_analyzer_complete(self, freezing):
         self.freezing = freezing
         self.freezing_behaviors = []
         for i, freezing in enumerate(self.freezing):
@@ -293,4 +272,5 @@ class FreezingWidget(QtWidgets.QWidget):
             )
 
         self.analyze_button.setText("Analyze")
+        self.analyze_button.setEnabled(True)
         self.analyze_button.clicked.connect(self.analyze)
