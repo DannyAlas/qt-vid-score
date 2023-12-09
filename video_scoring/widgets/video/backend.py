@@ -150,6 +150,10 @@ class VideoCapture(QMutex):
         """Get a frame from the webcam using cv2.VideoCapture.read()"""
 
         if frame_num is not None:
+            if frame_num < 0:
+                frame_num = 0
+            elif frame_num > self.len:
+                frame_num = self.len - 1
             self.vc.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
             (status, frame) = self.vc.read()
             self.frame_num = int(self.vc.get(cv2.CAP_PROP_POS_FRAMES))
