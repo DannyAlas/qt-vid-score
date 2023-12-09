@@ -1,4 +1,4 @@
-__version__ = "0.1.0"
+__version__ = "0.1.2"
 
 import inspect
 import json
@@ -143,15 +143,9 @@ class MainWindow(QMainWindow):
 
     def _get_icon(self, icon_name, as_string=False, svg=False):
         if self.project_settings.theme == "dark":
-            if svg:
-                icon_path = os.path.join(self.icons_dir, "themes", "Dark", icon_name)
-            else:
-                icon_path = os.path.join(self.icons_dir, "dark", icon_name)
+            icon_path = os.path.join(self.icons_dir, "dark", icon_name)
         elif self.project_settings.theme == "light":
-            if svg:
-                icon_path = os.path.join(self.icons_dir, "themes", "Light", icon_name)
-            else:
-                icon_path = os.path.join(self.icons_dir, icon_name)
+            icon_path = os.path.join(self.icons_dir, icon_name)
         elif self.project_settings.theme == "auto":
             icon_path = os.path.join(self.icons_dir, "dark", icon_name)
         else:
@@ -177,7 +171,7 @@ class MainWindow(QMainWindow):
         self.tray_icon.setToolTip("Video Scoring Thing")
         self.tray_icon.show()
 
-    def update_status(self, message, log_level=logging.INFO, do_log=True):
+    def update_status(self, message, log_level=logging.DEBUG, do_log=True):
         if self.status_bar is not None:
             self.status_bar.showMessage(message)
         if not do_log:
@@ -190,6 +184,8 @@ class MainWindow(QMainWindow):
             log.error(message)
         elif log_level == logging.CRITICAL:
             log.critical(message)
+        elif log_level == logging.DEBUG:
+            log.debug(message)
 
     def start_pbar(
         self,
@@ -241,7 +237,7 @@ class MainWindow(QMainWindow):
         self.help_menu = self.menu.addMenu("Help")
         if self.help_menu is None:
             raise Exception("Failed to create help menu")
-        self.help_menu.addAction("Help", self.help)
+        self.help_menu.addAction("Help Site", self.help)
         self.report_bug_action = self.help_menu.addAction("Report Bug", self.report_bug)
         self.help_menu.addSeparator()
         self.help_menu.addAction("About", self.about)
@@ -269,16 +265,31 @@ class MainWindow(QMainWindow):
             self.save_settings()
             # open project
             file = file_dialog.selectedFiles()[0]
+            if file is None:
+                return
             self.project_settings.video_file_location = file
             self.update_status(
                 f"Imported video at {self.project_settings.video_file_location}"
             )
             self.save_settings()
-            self.video_player_dw.start(file)
-            self.settings_dock_widget.refresh()
+            self._loaders()
 
     def import_timestamps(self):
-        pass
+        # file dialog to open csv
+        file_dialog = QtWidgets.QFileDialog()
+        file_dialog.setFileMode(QtWidgets.QFileDialog.FileMode.AnyFile)
+        file_dialog.setNameFilter("CSV (*.csv)")
+        file_dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptMode.AcceptOpen)
+        file_dialog.setDefaultSuffix("csv")
+        file_dialog.setDirectory(self.project_settings.settings_file_location)
+        if file_dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+            # try save current project
+            self.save_settings()
+            # open project
+            file = file_dialog.selectedFiles()[0]
+            self.project_settings.scoring_data.timestamp_file_location = file
+            self.save_settings()
+            self.timeline_dw.import_ts_file(file)
 
     def import_tdt_tank(self):
         # file dialog to select a folder
@@ -323,14 +334,14 @@ class MainWindow(QMainWindow):
                 f"Imported video at {self.project_settings.video_file_location}"
             )
             self.save_settings()
-            self.video_player_dw.start(str(file))
+            self.video_player_dw.load(str(file))
         except:
             self.update_status(
                 f"Failed to import video at {self.project_settings.video_file_location}"
             )
 
     def export_timestamps(self):
-        pass
+        self.timestamps_dw.save()
 
     def undo(self):
         self.command_stack.undo()
@@ -339,7 +350,11 @@ class MainWindow(QMainWindow):
         self.command_stack.redo()
 
     def init_doc_widgets(self):
-        self.open_settings_widget()
+        self.settings_dock_widget = SettingsDockWidget(self)
+        self.addDockWidget(
+            QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self.settings_dock_widget
+        )
+        self.dock_widgets_menu.addAction(self.settings_dock_widget.toggleViewAction())
         self.settings_dock_widget.hide()
 
         self.video_player_dw = VideoPlayerDockWidget(self, self)
@@ -348,6 +363,13 @@ class MainWindow(QMainWindow):
         self.dock_widgets_menu.addAction(self.video_player_dw.toggleViewAction())
         if os.path.exists(self.project_settings.video_file_location):
             self.video_player_dw.start(self.project_settings.video_file_location)
+
+        # from video_scoring.widgets.projects.projects import ProjectsDock
+        # self.projects_dw = ProjectsDock(self, self)
+        # self.addDockWidget(
+        #     QtCore.Qt.DockWidgetArea.LeftDockWidgetArea, self.projects_dw
+        # )
+        # self.dock_widgets_menu.addAction(self.projects_dw.toggleViewAction())
 
         self.timestamps_dw = TimeStampsDockwidget(self, self)
         self.addDockWidget(
@@ -360,26 +382,16 @@ class MainWindow(QMainWindow):
             QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self.timeline_dw
         )
         self.dock_widgets_menu.addAction(self.timeline_dw.toggleViewAction())
-        from video_scoring.widgets.analysis import VideoAnalysisDock
+        # from video_scoring.widgets.analysis import VideoAnalysisDock
 
-        self.analysis_dw = VideoAnalysisDock(self)
-        self.addDockWidget(
-            QtCore.Qt.DockWidgetArea.LeftDockWidgetArea, self.analysis_dw
-        )
-        self.dock_widgets_menu.addAction(self.analysis_dw.toggleViewAction())
+        # self.analysis_dw = VideoAnalysisDock(self)
+        # self.addDockWidget(
+        #     QtCore.Qt.DockWidgetArea.LeftDockWidgetArea, self.analysis_dw
+        # )
+        # self.dock_widgets_menu.addAction(self.analysis_dw.toggleViewAction())
 
     def open_settings_widget(self):
-        if not hasattr(self, "settings_dock_widget"):
-            self.settings_dock_widget = SettingsDockWidget(self)
-            self.addDockWidget(
-                QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self.settings_dock_widget
-            )
-            self.dock_widgets_menu.addAction(
-                self.settings_dock_widget.toggleViewAction()
-            )
-        else:
-            self.settings_dock_widget.toggleViewAction()
-        self.update_log_file()
+        self.settings_dock_widget.show()
 
     def init_handlers(self):
         """
@@ -442,11 +454,15 @@ class MainWindow(QMainWindow):
 
     ############################# File Menu Actions #############################
 
-    def load_settings_file(self):
-        latest_project_location = self.qt_settings.value("latest_project_location")
+    def load_settings_file(self, file_location: Optional[str] = None):
+        if file_location is None:
+            latest_project_location = self.qt_settings.value("latest_project_location")
+        else:
+            latest_project_location = file_location
         if latest_project_location is not None:
             try:
                 self.project_settings.load(latest_project_location)
+                self.project_settings.settings_file_location = latest_project_location
                 self.update_status(
                     f"Loaded the latest project settings for {self.project_settings.video_file_name}"
                 )
@@ -483,6 +499,11 @@ class MainWindow(QMainWindow):
         self.init_logging()
         self.load_settings()
 
+    def _loaders(self):
+        if os.path.exists(self.project_settings.video_file_location):
+            self.video_player_dw.load(self.project_settings.video_file_location)
+        self.timeline_dw.load()
+
     def new_project(self):
         # file dialog to select save location
         file_dialog = QtWidgets.QFileDialog()
@@ -503,7 +524,8 @@ class MainWindow(QMainWindow):
             self.update_status(
                 f"Created new project at {self.project_settings.settings_file_location}"
             )
-            self.load_settings_file()
+            self.load_settings_file(file_location=file_dialog.selectedFiles()[0])
+            self._loaders()
 
     def open_project(self, location: Optional[str] = None):
         # file dialog to select project location
@@ -529,13 +551,8 @@ class MainWindow(QMainWindow):
             self.update_status(
                 f"Opened project at {self.project_settings.settings_file_location}"
             )
-            self.load_settings_file()
-
-        for widget in self.findChildren(QtWidgets.QWidget):
-            try:
-                widget.refresh()
-            except:
-                pass
+            self.load_settings_file(file_location=file_dialog.selectedFiles()[0])
+            self._loaders()
 
     def init_logging(self):
         self.log = logging.getLogger()
@@ -551,7 +568,7 @@ class MainWindow(QMainWindow):
             int(self.project_settings.window_position[1]),
         )
         self.change_theme(self.project_settings.theme)
-        self.loaded.connect(lambda: self.timeline_dw.load())
+        self.loaded.connect(self._loaders)
         # BACKWARDS COMPATIBILITY
         if self.project_settings.scoring_data.timestamp_data != {}:
             self.loaded.connect(self.migrate_timestamp_data)
@@ -625,6 +642,8 @@ class MainWindow(QMainWindow):
             if isinstance(handler, logging.FileHandler):
                 log.removeHandler(handler)
         log.addHandler(fileHandler)
+        log.setLevel(self.logging_level)
+        self.log = log
 
     def help(self):
         # open browser to github
@@ -747,4 +766,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self.save_settings()
+        # close all threads
+        for thread in self.findChildren(QThread):
+            thread.quit()
         event.accept()
