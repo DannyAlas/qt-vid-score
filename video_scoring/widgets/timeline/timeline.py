@@ -1,7 +1,10 @@
+import re
+from math import e
 from typing import TYPE_CHECKING, List, Union
 
-from qtpy import QtCore, QtGui, QtWidgets
-from qtpy.QtCore import QEvent, QPointF, QRectF, Qt, Signal
+from PyQt6 import QtGui
+from qtpy import QtGui, QtWidgets
+from qtpy.QtCore import QPointF, QRectF, Qt, Signal
 from qtpy.QtGui import QPainter, QPen
 from qtpy.QtWidgets import (
     QDockWidget,
@@ -55,23 +58,16 @@ class DeleteBehaviorCommand(Command):
         super().__init__()
         self.timeline_view = timeline_view
         self.track = track
-        # make a copy of the item so we can add it back if we undo
         self.item = item
-        self.item_ons = item.onset
-        self.item_offs = item.offset
+
+    def undo(self):
+        self.track.behavior_items[self.item.onset] = self.item
+        self.timeline_view.scene().addItem(self.item)
+        self.timeline_view.scene().update()
 
     def redo(self):
         self.track.behavior_items.pop(self.item.onset)
         self.timeline_view.scene().removeItem(self.item)
-        self.timeline_view.scene().update()
-
-    def undo(self):
-        self.timeline_view.add_oo_behavior(
-            self.item_ons,
-            self.item_offs,
-            self.timeline_view.get_track_idx_from_name(self.track.name),
-        )
-        self.track.curr_behavior_item = None
         self.timeline_view.scene().update()
 
 
@@ -118,6 +114,8 @@ class DeleteTrackCommand(Command):
     def undo(self):
         self.timeline_view.behavior_tracks.append(self.track)
         self.timeline_view.scene().addItem(self.track)
+        # reset the y position of the tracks
+        self.timeline_view.update_track_view()
         self.timeline_view.scene().update()
 
 
@@ -188,10 +186,8 @@ class TimelineView(QGraphicsView):
             {}
         )  # A dict of key for the item to hide and the corresponding behavior track
         self.item_keys_to_render: dict[
-            int, "BehaviorTrack"
-        ] = (
-            {}
-        )  # A dict of key for the item to render and the corresponding behavior track
+            "BehaviorTrack", List[int]
+        ] = {}  # A dict of tracks with item onset or offset in the visible range
         self.setSceneRect(
             0, 0, num_frames * self.frame_width, 60
         )  # Adjust the size as needed
@@ -248,8 +244,9 @@ class TimelineView(QGraphicsView):
         self.setMinimumSize(self.rect().width(), y_pos + self.track_height + 10)
         self.behavior_tracks_changed.emit()
         self.scene().update()
+        return track
 
-    def add_oo_behavior(self, onset, offset=None, track_idx=None):
+    def silent_add_oo_behavior(self, onset, offset=None, track_idx=None):
         if track_idx is None:
             track_idx = self.get_track_idx_from_name(self.track_name_to_save_on)
         if track_idx is None:
@@ -258,9 +255,6 @@ class TimelineView(QGraphicsView):
             x = self.behavior_tracks[track_idx].check_for_overlap(onset)
             if x is None:
                 i = self.behavior_tracks[track_idx].add_behavior(onset)
-                self.parent.main_win.command_stack.add_command(
-                    AddBehaviorCommand(self, self.behavior_tracks[track_idx], i)
-                )
                 if offset is not None:
                     i.set_offset(offset)
                     self.behavior_tracks[track_idx].curr_behavior_item = None
@@ -269,6 +263,37 @@ class TimelineView(QGraphicsView):
                 x.setErrored()
         else:
             self.behavior_tracks[track_idx].curr_behavior_item = None
+
+    def add_oo_behavior(
+        self, onset, offset=None, track_idx=None
+    ) -> Union[None, OnsetOffsetItem]:
+        ret = None
+        if track_idx is None:
+            track_idx = self.get_track_idx_from_name(self.track_name_to_save_on)
+        if track_idx is None:
+            track_idx = 0
+        if self.behavior_tracks[track_idx].curr_behavior_item is None:
+            if offset is not None:
+                ovlp = self.behavior_tracks[track_idx].check_for_overlap(onset, offset)
+            else:
+                ovlp = self.behavior_tracks[track_idx].check_for_overlap(onset)
+            if ovlp is None:
+                i = self.behavior_tracks[track_idx].add_behavior(onset)
+                if offset is not None:
+                    i.set_offset(offset)
+                    self.behavior_tracks[track_idx].curr_behavior_item = None
+                self.scene().update()
+                ret = i
+            else:
+                ovlp.setErrored()
+                return None
+        else:
+            self.behavior_tracks[track_idx].curr_behavior_item = None
+        return ret
+
+    def delete_oo_behavior(self, onset: int, track: "BehaviorTrack"):
+        track.remove_behavior(track.behavior_items[onset])
+        self.scene().update()
 
     def get_item_at_frame(self, frame: int):
         # get the item at a specific frame
@@ -291,11 +316,11 @@ class TimelineView(QGraphicsView):
             self.playhead.triangle.boundingRect().width() / 2 - 11,
             self.mapToScene(0, 0).y() + 20,
         )
-        self.move_playhead_to_frame(self.playhead.triangle.current_frame)
         if self.num_frames > 100:
             self.base_frame_width = 50
             self.frame_width = 5
             self.frame_width_changed.emit(self.frame_width)
+        self.move_playhead_to_frame(1)
         self.scene().update()
 
     def drawBackground(self, painter, rect):
@@ -356,26 +381,27 @@ class TimelineView(QGraphicsView):
 
     def move_playhead_to_frame(self, frame: int):
         # move the playhead to a specific frame
-        self.playhead.setPos(abs(self.get_x_pos_of_frame(frame)), 0)
-        self.playhead.triangle.current_frame = frame
-        if (
-            self.get_track_from_name(self.track_name_to_save_on).curr_behavior_item
-            is not None
-        ):
-            x = self.get_track_from_name(self.track_name_to_save_on).check_for_overlap(
-                self.get_track_from_name(
-                    self.track_name_to_save_on
-                ).curr_behavior_item.onset,
-                frame,
-            )
-            if x is None:
-                self.get_track_from_name(
-                    self.track_name_to_save_on
-                ).curr_behavior_item.set_offset(frame)
-            else:
-                x.setErrored()
         self.value = frame
         self.valueChanged.emit(frame)
+        self.playhead.setPos(abs(self.get_x_pos_of_frame(frame)), 0)
+        self.playhead.triangle.current_frame = frame
+        track = self.get_track_from_name(self.track_name_to_save_on)
+        if track is not None:
+            if track.curr_behavior_item is not None:
+                x = self.get_track_from_name(
+                    self.track_name_to_save_on
+                ).check_for_overlap(
+                    self.get_track_from_name(
+                        self.track_name_to_save_on
+                    ).curr_behavior_item.onset,
+                    frame,
+                )
+                if x is None:
+                    self.get_track_from_name(
+                        self.track_name_to_save_on
+                    ).curr_behavior_item.set_offset(frame)
+                else:
+                    x.setErrored()
 
     def wheelEvent(self, event):
         # if we're holding ctrl, zoom in or out
@@ -489,22 +515,27 @@ class TimelineView(QGraphicsView):
                 frame = int(mouse_pos / self.frame_width) + 1
                 if event.modifiers() == Qt.KeyboardModifier.ShiftModifier:
                     # get the nearest behavior onset or offset
-                    for key, track in self.item_keys_to_render.items():
-                        behavior = track.behavior_items[key]
-                        if (
-                            abs(mouse_pos - self.get_x_pos_of_frame(behavior.onset))
-                            < 20
-                        ):
-                            frame = behavior.onset
-                            break
-                        elif (
-                            abs(mouse_pos - self.get_x_pos_of_frame(behavior.offset))
-                            < 20
-                        ):
-                            frame = behavior.offset
-                            break
-                        else:
-                            frame = int(mouse_pos / self.frame_width) + 1
+                    for track, onset_list in self.item_keys_to_render.items():
+
+                        for key in onset_list:
+                            behavior = track.behavior_items[key]
+
+                            if (
+                                abs(mouse_pos - self.get_x_pos_of_frame(behavior.onset))
+                                < 20
+                            ):
+                                frame = behavior.onset
+                                break
+                            elif (
+                                abs(
+                                    mouse_pos - self.get_x_pos_of_frame(behavior.offset)
+                                )
+                                < 20
+                            ):
+                                frame = behavior.offset
+                                break
+                            else:
+                                frame = int(mouse_pos / self.frame_width) + 1
 
                 self.playhead.triangle.pressed = True
                 self.move_playhead_to_frame(frame)
@@ -619,20 +650,12 @@ class TimelineView(QGraphicsView):
             ################################ LOD RENDERING ################################
 
             # get the list of items whos onset and item.offset fall outside the visible range
-            self.item_keys_to_hide = {
-                key: track
-                for key in track.behavior_items.keys()
-                if track.behavior_items[key].offset < l
-                or track.behavior_items[key].onset > r
-            }
-            self.item_keys_to_render = {
-                key: track
-                for key in track.behavior_items.keys()
-                if key >= l
-                and key <= r
-                or track.behavior_items[key].offset >= l
-                and track.behavior_items[key].offset <= r
-            }
+            self.item_keys_to_hide[track] = [
+                key for key in track.behavior_items.keys() if key < l or key > r
+            ]
+            self.item_keys_to_render[track] = [
+                key for key in track.behavior_items.keys() if key >= l and key <= r
+            ]
             for item in track.behavior_items.values():
                 if not item.pressed:
                     item.setPos(
@@ -682,23 +705,30 @@ class TimelineView(QGraphicsView):
     def isPlayheadDown(self):
         return self.playhead.triangle.pressed
 
+    def update_track_view(self):
+        for idx, track in enumerate(self.behavior_tracks):
+            track.y_position = idx * self.track_height + 70
+        self.setMinimumHeight(
+            self.track_y_start + len(self.behavior_tracks) * self.track_height + 10
+        )
+
     def update(self):
         if self.value:
             self.playhead.triangle.current_frame = self.value
-
-        if (
-            self.get_track_from_name(self.track_name_to_save_on).curr_behavior_item
-            is not None
-        ):
-            it = self.get_track_from_name(self.track_name_to_save_on).curr_behavior_item
-            if self.get_track_from_name(
-                self.track_name_to_save_on
-            ).overlap_with_item_check(it, onset=self.value):
-                it.setErrored()
-            else:
-                self.get_track_from_name(
+        track = self.get_track_from_name(self.track_name_to_save_on)
+        if track is not None:
+            if track.curr_behavior_item is not None:
+                it = self.get_track_from_name(
                     self.track_name_to_save_on
-                ).curr_behavior_item.set_offset(self.value)
+                ).curr_behavior_item
+                if self.get_track_from_name(
+                    self.track_name_to_save_on
+                ).overlap_with_item_check(it, onset=self.value):
+                    it.setErrored()
+                else:
+                    self.get_track_from_name(
+                        self.track_name_to_save_on
+                    ).curr_behavior_item.set_offset(self.value)
 
         self.move_playhead_to_frame(self.playhead.triangle.current_frame)
         super().update()
@@ -747,7 +777,12 @@ class TimelineDockWidget(QDockWidget):
 
     def show_context_menu(self, pos):
         # get the item at the current mouse position
-        item = self.timeline_view.itemAt(pos)
+        scene_pos = self.timeline_view.mapToScene(pos)
+        # not sure why, but we need to offset the y position by  to get the correct item
+        scene_pos.setY(scene_pos.y() - 30)
+        item = self.timeline_view.scene().itemAt(
+            QPointF(scene_pos), self.timeline_view.transform()
+        )
         context_menu = QMenu()
         if isinstance(item, OnsetOffsetItem):
             # select the item
@@ -781,6 +816,22 @@ class TimelineDockWidget(QDockWidget):
             add_action.triggered.connect(self.add_behavior_track)
             # show the context menu
             context_menu.exec(self.mapToGlobal(pos))
+
+    def add_oo_behavior(self, onset, offset=None, track_idx=None):
+        item = self.timeline_view.add_oo_behavior(onset, offset, track_idx)
+        if item is not None:
+            self.main_win.command_stack.add_command(
+                AddBehaviorCommand(self.timeline_view, item.parent, item)
+            )
+
+    def delete_selected_timestamp(self):
+        # delete the selected timestamp
+        for item in self.timeline_view.scene().selectedItems():
+            if isinstance(item, OnsetOffsetItem):
+                self.timeline_view.delete_oo_behavior(item.onset, item.parent)
+                self.main_win.command_stack.add_command(
+                    DeleteBehaviorCommand(self.timeline_view, item.parent, item)
+                )
 
     def add_behavior_track(self):
         # open a msg box to get the name of the new track
@@ -820,6 +871,8 @@ class TimelineDockWidget(QDockWidget):
             # update the scene
             self.timeline_view.scene().update()
             self.main_win.timestamps_dw.update_tracks()
+            # reset the y position of the tracks
+            self.timeline_view.update_track_view()
             self.update_track_to_save()
 
     def update_track_to_save(self):
@@ -935,27 +988,25 @@ class TimelineDockWidget(QDockWidget):
             self.timeline_view.get_playhead_frame()
         )
 
-    def delete_selected_timestamp(self):
-        # delete the selected timestamp
-        for item in self.timeline_view.scene().selectedItems():
-            if isinstance(item, OnsetOffsetItem):
-                self.main_win.command_stack.add_command(
-                    DeleteBehaviorCommand(
-                        self.timeline_view,
-                        item.parent,
-                        item,
-                    )
-                )
-                item.parent.remove_behavior(item)
-                item.parent.curr_behavior_item = None
-                self.main_win.timestamps_dw.update()
-                self.timeline_view.scene().update()
-
     def load(self):
+        for track in self.timeline_view.behavior_tracks:
+            self.timeline_view.behavior_tracks.pop(
+                self.timeline_view.behavior_tracks.index(track)
+            )
+            self.timeline_view.scene().removeItem(track)
+            self.timeline_view.scene().removeItem(track.track_name_item)
+            # update the scene
+            self.timeline_view.scene().update()
+            self.main_win.timestamps_dw.update_tracks()
+
+        if self.main_win.video_player_dw.video_widget.play_worker is not None:
+            self.timeline_view.set_length(
+                self.main_win.video_player_dw.video_widget.play_worker.vc.len
+            )
         for track in self.main_win.project_settings.scoring_data.behavior_tracks:
             self.timeline_view.add_behavior_track(track.name)
             for item in track.behavior_items:
-                self.timeline_view.add_oo_behavior(
+                self.timeline_view.silent_add_oo_behavior(
                     item.onset,
                     item.offset,
                     track_idx=self.timeline_view.get_track_idx_from_name(track.name),
@@ -964,8 +1015,33 @@ class TimelineDockWidget(QDockWidget):
         self.main_win.timestamps_dw.update_tracks()
         self.update_track_to_save()
 
+    def import_ts_file(self, file_path):
+        # load the behavior tracks from a file
+        with open(file_path, "r") as f:
+            file = f.readlines()
+        # add track = file name
+        track = self.timeline_view.add_behavior_track(
+            file_path.split("/")[-1].split(".")[0]
+        )
+        for line in file:
+            # if line = "Onset,Offset" then we're at the header
+            if line.__contains__("Onset,Offset"):
+                continue
+            # otherwise, we're at a behavior
+            else:
+                # split the line by the comma
+                onset, offset = line.split(",")
+                # add the behavior
+                self.timeline_view.silent_add_oo_behavior(
+                    int(onset),
+                    int(offset),
+                    track_idx=self.timeline_view.get_track_idx_from_name(track.name),
+                )
+
+        self.main_win.timestamps_dw.update_tracks()
+        self.update_track_to_save()
+
     def save(self):
-        # return a list of behavior tracks
         from video_scoring.settings import BehaviorTrackSetting, OOBehaviorItemSetting
 
         behavior_tracks = []
@@ -988,3 +1064,9 @@ class TimelineDockWidget(QDockWidget):
                 )
             )
         return behavior_tracks
+
+    def refresh(self):
+        self.load()
+        # reset the y position of the tracks
+        self.timeline_view.scene().update()
+        self.timeline_view.update()

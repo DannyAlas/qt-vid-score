@@ -277,12 +277,14 @@ class TimeStampsDockwidget(QtWidgets.QDockWidget):
         self.main_layout = QtWidgets.QVBoxLayout()
         self.main_widget.setLayout(self.main_layout)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
-        self.main_layout.setSpacing(0)
+        self.main_layout.setSpacing(1)
         self.main_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignTop)
         self.main_layout.addWidget(self.toolbar)
 
         # add a save button
-        self.save_act = QtWidgets.QAction(self.main_win._get_icon("save"), "Save", self)
+        self.save_act = QtWidgets.QAction(
+            self.main_win._get_icon("diskette.png"), "Save", self
+        )
         self.save_act.triggered.connect(self.save)
         self.toolbar.addAction(self.save_act)
         # add dropdown to select the behavior track
@@ -331,7 +333,7 @@ class TimeStampsDockwidget(QtWidgets.QDockWidget):
         file_path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self,
             "Save Timestamps",
-            self.main_win.project_settings.timestamp_file_location,
+            self.behavior_track_combo.currentText() + "_timestamps.csv",
             "CSV (*.csv)",
         )
         if file_path == "":
@@ -350,3 +352,34 @@ class TimeStampsDockwidget(QtWidgets.QDockWidget):
         # show a message box
         self.main_win.statusBar().showMessage(f"Saved timestamps to {file_path}")
         os.startfile(file_path, "open")
+
+    def load_from_csv(self, file_path):
+        """Load timestamps from a csv file"""
+        # load the file
+        with open(file_path, "r") as f:
+            # skip the header
+            f.readline()
+            # read the data
+            data = f.readlines()
+        # if the first line contains "Onset,Offset", skip it
+        if data[0].strip() == "Onset,Offset":
+            data = data[1:]
+        # clear the table
+        self.table_widget.table.clearContents()
+        self.table_widget.table.setRowCount(0)
+        # add the data to the table
+        for line in data:
+            onset, offset = line.strip().split(",")
+            self.table_widget.table.insertRow(self.table_widget.table.rowCount())
+            onset_item = QtWidgets.QTableWidgetItem(onset)
+            self.table_widget.table.setItem(
+                self.table_widget.table.rowCount() - 1, 0, onset_item
+            )
+            offset_item = QtWidgets.QTableWidgetItem(offset)
+            self.table_widget.table.setItem(
+                self.table_widget.table.rowCount() - 1, 1, offset_item
+            )
+        # save the file path
+        self.main_win.project_settings.timestamp_file_location = file_path
+        # show a message box
+        self.main_win.statusBar().showMessage(f"Loaded timestamps from {file_path}")

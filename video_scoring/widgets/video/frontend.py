@@ -1,6 +1,4 @@
-from email.charset import QP
-from tkinter import E
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import numpy as np
 from qtpy import QtCore, QtGui, QtWidgets
@@ -64,38 +62,6 @@ class VideoWidget(QWidget):
         self.play_worker = None
         self.lastFrame = None
         self.framesSincePrev = 0
-        # create a url for the background image
-        self.default_image = QPixmap(
-            r"C:\dev\projects\qt-vid-scoring\qt-vid-score\video_scoring\Images\icon_gray.png"
-        )
-        self.default_image = self.default_image.scaledToHeight(
-            200, QtCore.Qt.TransformationMode.SmoothTransformation
-        )
-        self.default_image_widget = None
-
-    def showDefaultImage(self):
-        # instead of the video display, show a default image if the video is not playing
-        # make a widget to hold the image that will be centered in the window
-        self.default_image_widget = QWidget()
-        self.default_image_widget.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
-        )
-        self.default_image_widget.setLayout(QVBoxLayout())
-        self.default_image_widget.layout().addWidget(
-            QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
-        )
-        self.default_image_widget.layout().itemAt(0).widget().setPixmap(
-            self.default_image
-        )
-        self.layout.addWidget(self.default_image_widget)
-
-    def showVideoDisplay(self):
-        if self.default_image_widget in self.layout:
-            self.layout.removeWidget(self.default_image_widget)
-            self.default_image_widget.deleteLater()
-
-        if self.video_display not in self.layout:
-            self.layout.addWidget(self.video_display)
 
     def updatePrevWindow(self, frame: np.ndarray) -> None:
         """Update the display with the new pixmap"""
@@ -172,8 +138,6 @@ class PlayerControls(QWidget):
         )
         self.controls_toolbar.setMovable(False)
         self.controls_toolbar.setFloatable(False)
-        self.controls_toolbar.setOrientation(QtCore.Qt.Orientation.Horizontal)
-        self.controls_toolbar.setAllowedAreas(QtCore.Qt.ToolBarArea.BottomToolBarArea)
         # center the items in the controls toolbar
         left_spacer = QtWidgets.QWidget()
         left_spacer.setSizePolicy(
@@ -184,7 +148,7 @@ class PlayerControls(QWidget):
         self.seek_back_large_frames_action = QtWidgets.QAction(
             self.vpdw.main_win._get_icon("seek-backward-long-button.png"),
             f"Seek back large frames ({self.vpdw.main_win.project_settings.playback.seek_video_large})",
-            self.controls_toolbar,
+            self,
         )
         self.seek_back_large_frames_action.triggered.connect(
             self.vpdw.seek_back_medium_frames
@@ -311,12 +275,29 @@ class VideoPlayerDockWidget(QDockWidget):
         super(VideoPlayerDockWidget, self).__init__(parent)
         self.setWindowTitle("Video Player")
         self.main_win = main_win
+        self._init_ui()
+        self.main_win.loaded.connect(self._init_connections)
+
+    def _init_ui(self):
         self.tool_bar = QtWidgets.QToolBar()
         self.tool_bar.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.tool_bar.setMovable(False)
         self.tool_bar.setFloatable(False)
         self.tool_bar.setOrientation(QtCore.Qt.Orientation.Horizontal)
         self.tool_bar.setAllowedAreas(QtCore.Qt.ToolBarArea.TopToolBarArea)
+        self.fps_label = QLabel(f"FPS: NaN")
+        self.tool_bar.addWidget(self.fps_label)
+        center_spacer = QtWidgets.QWidget()
+        center_spacer.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self.tool_bar.addWidget(center_spacer)
+        self.info_button = QtWidgets.QAction(
+            self.main_win._get_icon("cogs.svg", svg=True), "info", self
+        )
+        self.info_button.triggered.connect(self.open_info)
+        self.tool_bar.addAction(self.info_button)
+
         self.video_widget = VideoWidget(self)
         self.player_controls = PlayerControls(self)
         self.started = False
@@ -330,7 +311,6 @@ class VideoPlayerDockWidget(QDockWidget):
         self.widget = QWidget()
         self.widget.setLayout(self.layout)
         self.setWidget(self.widget)
-        self.main_win.loaded.connect(self._init_connections)
 
     def _init_connections(self):
         self.video_widget.signals.frame.connect(self.update_timeline)
@@ -338,19 +318,7 @@ class VideoPlayerDockWidget(QDockWidget):
         self.timeline.timeline_view.valueChanged.connect(self.timelineChanged)
         if self.started:
             self.timeline.set_length(self.video_widget.play_worker.vc.len)
-            self.toggle_play()
-        self.fps_label = QLabel(f"FPS: {self.video_widget.play_worker.vc.fps}")
-        self.tool_bar.addWidget(self.fps_label)
-        center_spacer = QtWidgets.QWidget()
-        center_spacer.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-        )
-        self.tool_bar.addWidget(center_spacer)
-        self.info_button = QPushButton(
-            self.main_win._get_icon("cogs.svg", svg=True), "Info"
-        )
-        self.info_button.clicked.connect(self.open_info)
-        self.tool_bar.addWidget(self.info_button)
+            self.fps_label.setText(f"FPS: {self.video_widget.play_worker.vc.fps}")
 
     def open_info(self):
         self.info_widget = VideoPlayerSettingsWidget(self.main_win, self.video_widget)
@@ -361,8 +329,6 @@ class VideoPlayerDockWidget(QDockWidget):
         try:
             self.video_widget.startPlayer(video_file)
             self.started = True
-            self.timeline.set_length(self.video_widget.play_worker.vc.len)
-            self.toggle_play()
         except Exception as e:
             self.main_win.update_status(f"Error: {e}", True)
 
@@ -475,7 +441,7 @@ class VideoPlayerDockWidget(QDockWidget):
             return
         # get the current frame number
         frame_num = self.video_widget.play_worker.vc.frame_num
-        self.main_win.timeline_dw.timeline_view.add_oo_behavior(frame_num)
+        self.main_win.timeline_dw.add_oo_behavior(onset=frame_num)
         self.main_win.timestamps_dw.table_widget.update()
 
     def update_timeline(self, frame_num):
@@ -490,3 +456,17 @@ class VideoPlayerDockWidget(QDockWidget):
 
     def get_frame_num(self):
         return self.video_widget.play_worker.vc.frame_num
+
+    def load(self, video_file):
+        if video_file is None:
+            return
+        try:
+            self._init_connections()
+            self.video_widget.startPlayer(video_file)
+            self.started = True
+        except Exception as e:
+            self.main_win.update_status(f"Error: {e}", True)
+
+    def refresh(self):
+        # refresh the video widget
+        self.load()
