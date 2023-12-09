@@ -29,15 +29,13 @@ class VideoAnalysisDock(QDockWidget):
         self.layout = QVBoxLayout()
         self.main_widget.setLayout(self.layout)
         self.setWidget(self.main_widget)
-        self._init_ui()
+        self.main_win.loaded.connect(self._init_ui)
         self.hide()
 
     def _init_ui(self):
         # We will then have a tab widget to hold the different analysis widgets
         self.tab_widget = QTabWidget()
         self.layout.addWidget(self.tab_widget)
-
-        # We will add the freezing widget to the tab widget
         self.freezing_widget = FreezingWidget(
             file_path=self.main_win.video_player_dw.video_widget.video_file,
             vid_frame_len=self.main_win.video_player_dw.video_widget.play_worker.vc.len,
