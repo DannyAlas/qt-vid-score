@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 import sys
 import traceback as tb
 
@@ -27,9 +28,14 @@ sys.excepthook = logging_exept_hook
 
 parser = argparse.ArgumentParser(description="Video Scoring")
 parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+parser.add_argument(
+    "--debug-qt", action="store_true", help="Enable debug logging for Qt"
+)
 parser.add_argument("--version", action="store_true", help="Print version and exit")
 args = parser.parse_args()
 if args.debug:
+    # set env variable QT_LOGGING_RULES="qt.qpa.*=true" to enable qt debug logging
+    os.environ["DEBUG"] = args.debug.__str__()
     logging.basicConfig(
         level=logging.DEBUG,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -39,6 +45,8 @@ else:
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
+if args.debug_qt:
+    os.environ["QT_LOGGING_RULES"] = "qt.qpa.*=true"
 if args.version:
     print(f"Video Scoring v{__version__}")
     sys.exit(0)
@@ -47,6 +55,8 @@ if args.version:
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setApplicationName("Video Scoring")
+    app.setOrganizationName("Daniel Alas")
+    app.setOrganizationDomain("danielalas.com")
     app.setApplicationVersion(__version__)
     main_window = MainWindow()
     qdarktheme.setup_theme(theme="auto", corner_shape="rounded")
