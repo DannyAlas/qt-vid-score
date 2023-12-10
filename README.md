@@ -6,7 +6,7 @@ Aims to assist in behavioral scoring with automatic behavior detection and model
 ## [Installation](https://github.com/DannyAlas/qt-vid-score/wiki/Install-The-Video-Scoring-Application)
 
 ## Keybinds
-Can be edited in the settings menu. The default keybinds are as follows:
+Can be edited in the settings menu. The default keybindings are as follows:
 | Action Name                                     | Keybind        | Explanation                                             |
 |-------------------------------------------------|----------------|---------------------------------------------------------|
 | Exit                                            | Q              | Quit the program and save all timestamps to file.       |
@@ -26,12 +26,6 @@ Can be edited in the settings menu. The default keybinds are as follows:
 | Seek to Last Frame                              | 0              | Jump to the last frame in the sequence.                 |
 | Increase Playback Speed                         | X              | Increase the playback speed by a predefined amount.     |
 | Decrease Playback Speed                         | Z              | Decrease the playback speed by a predefined amount.     |
-| Increment Selected Timestamp by Seek Small      | Down           | Increment the selected timestamp by a small amount.     |
-| Decrement Selected Timestamp by Seek Small      | Up             | Decrement the selected timestamp by a small amount.     |
-| Increment Selected Timestamp by Seek Medium     | Shift+Down     | Increment the selected timestamp by a medium amount.    |
-| Decrement Selected Timestamp by Seek Medium     | Shift+Up       | Decrement the selected timestamp by a medium amount.    |
-| Increment Selected Timestamp by Seek Large      | Ctrl+Down      | Increment the selected timestamp by a large amount.     |
-| Decrement Selected Timestamp by Seek Large      | Ctrl+Up        | Decrement the selected timestamp by a large amount.     |
 | Move to Last Onset/Offset                       | Left           | Move to the last onset/offset timestamp.                |
 | Move to Next Onset/Offset                       | Right          | Move to the next onset/offset timestamp.                |
 | Move to Last Timestamp                          | Shift+Left     | Move to the last timestamp in the sequence.             |
