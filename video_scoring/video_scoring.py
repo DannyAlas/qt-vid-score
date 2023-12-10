@@ -525,6 +525,7 @@ class MainWindow(QMainWindow):
                 f"Created new project at {self.project_settings.settings_file_location}"
             )
             self.load_settings_file(file_location=file_dialog.selectedFiles()[0])
+            self.settings_dock_widget.refresh()
             self._loaders()
 
     def open_project(self, location: Optional[str] = None):
@@ -552,6 +553,7 @@ class MainWindow(QMainWindow):
                 f"Opened project at {self.project_settings.settings_file_location}"
             )
             self.load_settings_file(file_location=file_dialog.selectedFiles()[0])
+            self.settings_dock_widget.refresh()
             self._loaders()
 
     def init_logging(self):

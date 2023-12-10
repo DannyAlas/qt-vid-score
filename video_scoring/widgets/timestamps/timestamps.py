@@ -351,7 +351,6 @@ class TimeStampsDockwidget(QtWidgets.QDockWidget):
                 f.write(f"{onset},{offset}\n")
         # show a message box
         self.main_win.statusBar().showMessage(f"Saved timestamps to {file_path}")
-        os.startfile(file_path, "open")
 
     def load_from_csv(self, file_path):
         """Load timestamps from a csv file"""

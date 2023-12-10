@@ -152,6 +152,40 @@ class AddTrackDialog(QtWidgets.QDialog):
             self.parent.timeline_view.add_behavior_track(name)
             self.close()
 
+class RenameTrackDialog(QtWidgets.QDialog):
+    def __init__(self, parent: "TimelineDockWidget", track: "BehaviorTrack"):
+        super().__init__()
+        self.parent = parent
+        self.track = track
+        self.setWindowTitle("Rename Track")
+        self.setWindowModality(Qt.WindowModality.ApplicationModal)
+        self.setWindowFlag(Qt.WindowType.WindowCloseButtonHint, False)
+        self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
+        self.setWindowFlag(Qt.WindowType.WindowMinMaxButtonsHint, False)
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        self.setWindowFlag(Qt.WindowType.WindowTitleHint, False)
+        self.setFixedSize(300, 100)
+        self.layout = QtWidgets.QVBoxLayout()
+        self.setLayout(self.layout)
+        self.name_input = QtWidgets.QLineEdit()
+        self.name_input.setPlaceholderText(self.track.name)
+        self.layout.addWidget(self.name_input)
+        self.button_layout = QtWidgets.QHBoxLayout()
+        self.layout.addLayout(self.button_layout)
+        self.add_button = QtWidgets.QPushButton("Add")
+        self.add_button.clicked.connect(self.add_track)
+        self.add_button.setDefault(True)
+        self.button_layout.addWidget(self.add_button)
+        self.cancel_button = QtWidgets.QPushButton("Cancel")
+        self.cancel_button.clicked.connect(self.close)
+        self.button_layout.addWidget(self.cancel_button)
+
+    def add_track(self):
+        name = self.name_input.text()
+        if name:
+            self.track.name = name
+            self.track.update_name(name)
+            self.close()
 
 class TimelineView(QGraphicsView):
     valueChanged = Signal(int)
@@ -799,6 +833,9 @@ class TimelineDockWidget(QDockWidget):
             context_menu.exec(self.mapToGlobal(pos))
         elif isinstance(item, BehaviorTrack):
             # add the add action
+            rename_action = context_menu.addAction("Rename")
+            # connect the add action to the add_behavior_track function
+            rename_action.triggered.connect(lambda: self.rename_track(item))
             info_action = context_menu.addAction("Info")
             # connect the info action to the info function
             info_action.triggered.connect(lambda: self.show_info(item))
@@ -874,6 +911,15 @@ class TimelineDockWidget(QDockWidget):
             # reset the y position of the tracks
             self.timeline_view.update_track_view()
             self.update_track_to_save()
+
+    def rename_track(self, item):
+        if isinstance(item, BehaviorTrack):
+            # open a msg box to get the name of the new track
+            dialog = RenameTrackDialog(self, item)
+            dialog.exec()
+            self.update_track_to_save()
+            self.timeline_view.scene().update()
+            self.main_win.timestamps_dw.update_tracks()
 
     def update_track_to_save(self):
         self.track_to_save_on.clear()

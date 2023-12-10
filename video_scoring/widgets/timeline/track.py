@@ -140,6 +140,10 @@ class BehaviorTrack(QGraphicsRectItem):
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent | None) -> None:
         return super().mouseReleaseEvent(event)
 
+    def update_name(self, name: str):
+        self.name = name
+        self.track_name_item.setPlainText(name)
+
     def load(self, data: dict):
         self.name = data["name"]
         self.y_position = data["y_position"]
