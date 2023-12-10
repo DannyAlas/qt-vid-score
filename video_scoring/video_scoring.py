@@ -361,7 +361,7 @@ class MainWindow(QMainWindow):
         # add as central widget
         self.setCentralWidget(self.video_player_dw)
         self.dock_widgets_menu.addAction(self.video_player_dw.toggleViewAction())
-        if os.path.exists(self.project_settings.video_file_location):
+        if os.path.exists(str(self.project_settings.video_file_location)):
             self.video_player_dw.start(self.project_settings.video_file_location)
 
         # from video_scoring.widgets.projects.projects import ProjectsDock

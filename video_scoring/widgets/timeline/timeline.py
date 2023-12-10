@@ -152,6 +152,7 @@ class AddTrackDialog(QtWidgets.QDialog):
             self.parent.timeline_view.add_behavior_track(name)
             self.close()
 
+
 class RenameTrackDialog(QtWidgets.QDialog):
     def __init__(self, parent: "TimelineDockWidget", track: "BehaviorTrack"):
         super().__init__()
@@ -186,6 +187,7 @@ class RenameTrackDialog(QtWidgets.QDialog):
             self.track.name = name
             self.track.update_name(name)
             self.close()
+
 
 class TimelineView(QGraphicsView):
     valueChanged = Signal(int)

@@ -1,20 +1,18 @@
 from typing import TYPE_CHECKING
+from PyQt6 import QtGui
 
 import numpy as np
 from qtpy import QtCore, QtGui, QtWidgets
-from qtpy.QtCore import QObject, Qt, QThread, QUrl, Signal, Slot
-from qtpy.QtGui import QBrush, QImage, QPainter, QPixmap
+from qtpy.QtCore import QObject, Qt, QThread, Signal, Slot
+from qtpy.QtGui import QImage, QPixmap
 from qtpy.QtWidgets import (
     QDockWidget,
-    QHBoxLayout,
     QLabel,
     QPushButton,
     QSizePolicy,
-    QSlider,
     QVBoxLayout,
     QWidget,
 )
-
 from video_scoring.widgets.video.backend import VideoPlayer
 
 if TYPE_CHECKING:
@@ -45,16 +43,78 @@ class VideoWidgetSignals(QObject):
     frame = Signal(int)
 
 
+class BouncingAnimation(QtWidgets.QWidget):
+    def __init__(self, main_win: "MainWindow", parent=None):
+        super().__init__(parent)
+        self.parent = parent
+        self.main_win = main_win
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.img = QtGui.QImage(self.main_win._get_icon("icon.png", as_string=True))
+        self.img = self.img.scaled(
+            int(self.main_win.width() / 8),
+            int(self.main_win.height() / 8),
+            QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+        )
+        self.text = QtGui.QTextDocument(self)
+        self.text.setHtml("<font color='white'>D133 = Bestes Boi</font>")
+        font = QtGui.QFont("Freestyle Script", 20, QtGui.QFont.Weight.Bold)
+        font.setStyleStrategy(QtGui.QFont.StyleStrategy.PreferAntialias)
+        self.text.setDefaultFont(font)
+        self.show_text = False
+        self.x = 0
+        self.y = 0
+        self.dx = 1
+        self.dy = 1
+        self.timer = self.startTimer(int(1000 / 50))
+
+    def paintEvent(self, event):
+        painter = QtGui.QPainter(self)
+        painter.drawImage(self.x, self.y, self.img)
+        if self.show_text:
+            # draw the text with the font
+            painter.translate(self.x - 20, self.y + self.img.height() + 10)
+            self.text.drawContents(painter)
+            painter.translate(-self.x + 20, -self.y - self.img.height() - 10)
+
+    def timerEvent(self, event):
+        self.x += self.dx
+        self.y += self.dy
+        if self.x < 0 or self.x > self.width() - self.img.width():
+            self.dx *= -1
+        if self.y < 0 or self.y > self.height() - self.img.height():
+            self.dy *= -1
+        self.update()
+
+    def resizeEvent(self, event):
+        self.x = 0
+        self.y = 0
+
+    def mousePressEvent(self, event):
+        # if we click on the image
+        image_rect = QtCore.QRect(self.x, self.y, self.img.width(), self.img.height())
+        if image_rect.contains(event.pos()):
+            self.show_text = not self.show_text
+
+        super(BouncingAnimation, self).mousePressEvent(event)
+
+
 # a window with a VideoDisplay label for displaying the video
 class VideoWidget(QWidget):
     def __init__(self, parent: "VideoPlayerDockWidget"):
         super(VideoWidget, self).__init__(parent)
         self.parent = parent
         self.video_display = VideoDisplay(self)
+        self.static_animation = BouncingAnimation(parent.main_win, self)
         self.signals = VideoWidgetSignals()
         self.layout = QVBoxLayout()
-        self.layout.addWidget(self.video_display)
         self.setLayout(self.layout)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.addWidget(self.static_animation)
+        self.layout.addWidget(self.video_display)
+        self.video_display.hide()
+        self.layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.layout.setSpacing(0)
+
         self.video_file = None
         self.frame_num = 0
         self.running = False
@@ -95,6 +155,9 @@ class VideoWidget(QWidget):
 
     def startPlayer(self, video_file) -> None:
         """start updating preview"""
+        self.static_animation.hide()
+        self.video_display.show()
+
         if self.running:
             self.play_worker.pause()
             self.running = False
@@ -117,6 +180,26 @@ class VideoWidget(QWidget):
         # Step 6: Start the thread
         self.play_thread.start()
         self.play_worker.seek(0)
+
+    def stopPlayer(self) -> None:
+        """stop updating preview"""
+        if self.video_display.isVisible():
+            self.video_display.hide()
+        if not self.static_animation.isVisible():
+            self.static_animation.show()
+            self.static_animation.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+            )
+            # size the animation to the window size
+            self.static_animation.resize(self.size())
+
+        if self.running:
+            self.play_worker.pause()
+            self.running = False
+            self.play_thread.quit()
+            self.play_thread.wait()
+            self.play_thread.deleteLater()
+            self.play_worker.deleteLater()
 
     def updateStatus(self, err, show):
         self.parent.main_win.update_status(err)
@@ -242,7 +325,6 @@ class VideoPlayerSettingsWidget(QWidget):
         self.playback_tab = QWidget()
         self.playback_tab.layout = QtWidgets.QFormLayout()
         self.playback_tab.setLayout(self.playback_tab.layout)
-
         # add row for video file
         row = QLabel(f"Video File: {self.video_widget.video_file}")
         row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -258,15 +340,22 @@ class VideoPlayerSettingsWidget(QWidget):
             "4-character code of codec",
             "Number of frames in the video file",
         ]
-        for prop in range(len(cv2_props)):
-            val = self.video_widget.play_worker.vc.vc.get(prop)
-            if val != 0:
-                row = QLabel(f"{cv2_props[prop]}: {val}")
-                row.setSizePolicy(
-                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-                )
-                self.playback_tab.layout.addRow(row)
-                self.playback_tab.layout.addRow(row)
+        if self.video_widget.play_worker is not None:
+            for prop in range(len(cv2_props)):
+                val = self.video_widget.play_worker.vc.vc.get(prop)
+                if val != 0:
+                    row = QLabel(f"{cv2_props[prop]}: {val}")
+                    row.setSizePolicy(
+                        QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+                    )
+                    self.playback_tab.layout.addRow(row)
+                    self.playback_tab.layout.addRow(row)
+            # add a button to remove the video file
+            remove_video_button = QPushButton("Remove Video")
+            self.main_win.project_settings.video_file_location = ""
+            remove_video_button.clicked.connect(self.video_widget.stopPlayer)
+            remove_video_button.clicked.connect(self.close)
+            self.playback_tab.layout.addRow(remove_video_button)
         self.tabs.addTab(self.playback_tab, "Playback")
 
 
@@ -299,6 +388,11 @@ class VideoPlayerDockWidget(QDockWidget):
         self.tool_bar.addAction(self.info_button)
 
         self.video_widget = VideoWidget(self)
+        # make the video widget the central widget
+        self.setWidget(self.video_widget)
+        self.video_widget.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
         self.player_controls = PlayerControls(self)
         self.started = False
         # set the layout
@@ -326,9 +420,12 @@ class VideoPlayerDockWidget(QDockWidget):
         self.info_widget.show()
 
     def start(self, video_file):
+        if video_file is None:
+            self.video_widget.stopPlayer()
         try:
             self.video_widget.startPlayer(video_file)
             self.started = True
+            self.setWindowTitle(f"Video Player - {video_file.split('/')[-1]}")
         except Exception as e:
             self.main_win.update_status(f"Error: {e}", True)
 
@@ -463,6 +560,7 @@ class VideoPlayerDockWidget(QDockWidget):
         try:
             self._init_connections()
             self.video_widget.startPlayer(video_file)
+            self.setWindowTitle(f"Video Player - {video_file.split('/')[-1]}")
             self.started = True
         except Exception as e:
             self.main_win.update_status(f"Error: {e}", True)
