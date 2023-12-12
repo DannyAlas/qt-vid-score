@@ -4,6 +4,7 @@ certifi==2023.11.17
 charset-normalizer==3.3.2
 darkdetect==0.7.1
 idna==3.4
+markdown2==2.4.11
 numpy==1.26.0
 opencv-python==4.8.1.78
 packaging==23.1
