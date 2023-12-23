@@ -1,3 +1,4 @@
+import imp
 import re
 from math import e
 from typing import TYPE_CHECKING, List, Union
@@ -194,13 +195,15 @@ class TimelineView(QGraphicsView):
     frame_width_changed = Signal(int)
     behavior_tracks_changed = Signal()
 
-    def __init__(self, num_frames, parent: "TimelineDockWidget" = None):
+    def __init__(self, num_frames, parent: "TimelineDockWidget" = None, main_window: "MainWindow" = None):
         super().__init__()
+        self.main_window = main_window
         # Set up the scene
         self.setScene(QGraphicsScene(self))
         self.setMouseTracking(True)
         # set drag mode to no drag and enable RubberBandSelection
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+        # TODO: enable multi select item dragging
         self.setRubberBandSelectionMode(Qt.ItemSelectionMode.IntersectsItemShape)
         self.setInteractive(True)
         self.parent = parent
@@ -244,7 +247,7 @@ class TimelineView(QGraphicsView):
         # add a track
         self.track_height = 50
         self.track_y_start = 50
-        self.resize(self.width(), self.track_y_start + self.track_height + 10)
+        #self.resize(self.width(), self.track_y_start + self.track_height + 10)
         self.hover_line = QGraphicsLineItem(0, 0, 0, 0)
 
         ################ TEMP ################
@@ -276,8 +279,8 @@ class TimelineView(QGraphicsView):
         self.behavior_tracks.append(track)
         self.scene().addItem(track)
         # resize the view so that the track we can see the track
-        self.resize(self.rect().width(), y_pos + self.track_height + 10)
-        self.setMinimumSize(self.rect().width(), y_pos + self.track_height + 10)
+        # self.resize(self.rect().width(), y_pos + self.track_height + 10)
+        self.setMinimumSize(1,1)
         self.behavior_tracks_changed.emit()
         self.scene().update()
         return track
@@ -744,9 +747,7 @@ class TimelineView(QGraphicsView):
     def update_track_view(self):
         for idx, track in enumerate(self.behavior_tracks):
             track.y_position = idx * self.track_height + 70
-        self.setMinimumHeight(
-            self.track_y_start + len(self.behavior_tracks) * self.track_height + 10
-        )
+        self.setMinimumHeight(10)
 
     def update(self):
         if self.value:
@@ -771,18 +772,15 @@ class TimelineView(QGraphicsView):
 
 
 class TimelineDockWidget(QDockWidget):
-    """This is the widget that contains the timeline, as a dockwidget for resizing. It cannot be closed or floated, only docked and resized"""
+    """A dock widget that contains the timeline view"""
 
     def __init__(self, main_win: "MainWindow", parent=None):
         super(TimelineDockWidget, self).__init__(parent)
         self.setWindowTitle("Timeline")
-        self.timeline_view = TimelineView(100, self)
+        self.timeline_view = TimelineView(100, self, main_win)
         self.main_win = main_win
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setFloating(False)
-        self.main_win.loaded.connect(
-            lambda: self.setMinimumHeight(self.timeline_view.track_y_start * 4)
-        )
         self.main_win.loaded.connect(self.load_tracks)
 
         # custom context menu
@@ -923,6 +921,12 @@ class TimelineDockWidget(QDockWidget):
             self.timeline_view.scene().update()
             self.main_win.timestamps_dw.update_tracks()
 
+    def update_track_color(self, track_name:str, color: str):
+        track = self.timeline_view.get_track_from_name(track_name)
+        if track is not None:
+            track.update_item_colors(color)
+            track.update()
+
     def update_track_to_save(self):
         self.track_to_save_on.clear()
         self.track_to_save_on.addItems(
@@ -949,11 +953,12 @@ class TimelineDockWidget(QDockWidget):
     def load_tracks(self):
         if len(self.main_win.project_settings.scoring_data.behavior_tracks) == 0:
             self.timeline_view.add_behavior_track("Behavior Track 1")
-        self.setMinimumHeight(
-            len(self.timeline_view.behavior_tracks) * self.timeline_view.track_height
-            + self.timeline_view.track_y_start
-            + 70
-        )
+        # self.setMinimumHeight(
+        #     len(self.timeline_view.behavior_tracks) * self.timeline_view.track_height
+        #     + self.timeline_view.track_y_start
+        #     + 70
+        # )
+        self.setMinimumHeight(10)
         self.update_track_to_save()
 
     def set_length(self, length: int):
@@ -1038,26 +1043,29 @@ class TimelineDockWidget(QDockWidget):
 
     def load(self):
         for track in self.timeline_view.behavior_tracks:
-            self.timeline_view.behavior_tracks.pop(
-                self.timeline_view.behavior_tracks.index(track)
-            )
+            # FIXME: the below results in QGraphicsScene::removeItem: item ...'s scene (0x0) is different from this scene (...)
+            # Checking the scene shows that they're the same, regardless setting the items scene mannually before removing the item doesn't work either and still results in a scene of (0x0)
+            # it works fine but the error should be investigated
             self.timeline_view.scene().removeItem(track)
             self.timeline_view.scene().removeItem(track.track_name_item)
-            # update the scene
-            self.timeline_view.scene().update()
-            self.main_win.timestamps_dw.update_tracks()
+            
+        self.timeline_view.behavior_tracks.clear()
+        # update the scene
+        self.timeline_view.scene().update()
+        self.main_win.timestamps_dw.update_tracks()
 
         if self.main_win.video_player_dw.video_widget.play_worker is not None:
             self.timeline_view.set_length(
                 self.main_win.video_player_dw.video_widget.play_worker.vc.len
             )
-        for track in self.main_win.project_settings.scoring_data.behavior_tracks:
-            self.timeline_view.add_behavior_track(track.name)
-            for item in track.behavior_items:
+        for track_s in self.main_win.project_settings.scoring_data.behavior_tracks:
+            track_item = self.timeline_view.add_behavior_track(track_s.name)
+            track_item.update_item_colors(track_s.color)
+            for item in track_s.behavior_items:
                 self.timeline_view.silent_add_oo_behavior(
                     item.onset,
                     item.offset,
-                    track_idx=self.timeline_view.get_track_idx_from_name(track.name),
+                    track_idx=self.timeline_view.get_track_idx_from_name(track_s.name),
                 )
 
         self.main_win.timestamps_dw.update_tracks()
@@ -1105,6 +1113,7 @@ class TimelineDockWidget(QDockWidget):
             behavior_tracks.append(
                 BehaviorTrackSetting(
                     name=track.name,
+                    color=track.item_color,
                     y_position=track.y_position,
                     track_height=track.track_height,
                     behavior_type=track.behavior_type,

@@ -1,17 +1,23 @@
-import json
-import logging
-import os
-import sys
-from typing import Any, List, Literal, Tuple, Union
+import datetime
+from re import T
 from uuid import uuid4
 
-from pydantic import BaseModel
+from qtpy.QtCore import QByteArray
+import json
+import logging
+import zipfile
+import os
+import sys
+from typing import Any, List, Literal, Tuple, Union, Dict, TypeVar
+from uuid import uuid4, UUID
 
-from video_scoring.widgets.timeline import behavior_items
+from pydantic import BaseModel, Field, UUID4, field_validator
 
 log = logging.getLogger()
 
-
+uidT = TypeVar("uidT", str, UUID)
+project_file_locationT = TypeVar("project_file_locationT", str, os.PathLike)
+dtT = TypeVar("dtT", datetime.datetime, str)
 def user_data_dir(file_name):
     r"""
     Get OS specific data directory path for Video Scoring.
@@ -38,6 +44,29 @@ def user_data_dir(file_name):
 
     return os.path.join(path, file_name)
 
+class CustomEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, UUID):
+            return obj.__str__()
+        if isinstance(obj, datetime.datetime):
+            return obj.__str__()
+        if isinstance(obj, QByteArray):
+            # will be serialized as base64 encoded string
+            return obj.data().decode()
+        return json.JSONEncoder.default(self, obj)
+
+class CustomDecoder(json.JSONDecoder):
+    def __init__(self, *args, **kwargs):
+        json.JSONDecoder.__init__(self, object_hook=self.dict_to_object, *args, **kwargs)
+
+    def dict_to_object(self, d):
+        if "uid" in d:
+            d["uid"] = UUID(d["uid"])
+        if "created" in d:
+            d["created"] = datetime.datetime.fromisoformat(d["created"])
+        if "modified" in d:
+            d["modified"] = datetime.datetime.fromisoformat(d["modified"])
+        return d
 
 class AbstSettings(BaseModel):
     @staticmethod
@@ -369,20 +398,20 @@ class TDTData:
         return frame_ts
 
 
-class OOBehaviorItemSetting(AbstSettings):
+class OOBehaviorItemSetting(BaseModel):
     onset: int = 0
     offset: int = 0
 
 
-class BehaviorTrackSetting(AbstSettings):
+class BehaviorTrackSetting(BaseModel):
     name: str = ""
+    color: str = "#FFFFFF"
     behavior_items: List[OOBehaviorItemSetting] = []
 
 
 class ScoringData(AbstSettings):
     """Represents the data associated with a scoring session"""
-
-    uid: str = ""
+    uid: uidT = ""
     video_file_location: str = ""
     video_file_name: str = ""
     timestamp_file_location: str = ""
@@ -390,45 +419,142 @@ class ScoringData(AbstSettings):
     scoring_type: Literal["onset/offset", "single"] = "onset/offset"
     behavior_tracks: List[BehaviorTrackSetting] = []
 
-
 class ProjectSettings(AbstSettings):
-    project_name: str = ""
-    settings_file_location: str = user_data_dir("settings.json")
-    theme: Literal["dark", "light"] = "dark"
-    joke_type: Literal["programming", "dad"] = "programming"
-    scoring: Scoring = Scoring()
-    video_file_location: str = ""
-    video_file_name: str = ""
-    timestamp_file_location: str = ""
+    """This will be an individual project within the application settings. Each project will have its own settings file."""
+    uid: uidT = Field(default_factory=uuid4)
+    name: str = ""
+    scorer: str = ""
+    created: dtT = Field(default_factory=datetime.datetime.now)
+    modified: dtT = Field(default_factory=datetime.datetime.now)
+    file_location: str = ""
+    layouts: Dict[str, Any] = {
+        "Main": {
+            "geometry": "AdnQywADAAAAAAJTAAABgAAACCQAAAUJAAACUwAAAZ8AAAgkAAAFCQAAAAAAAAAACgAAAAJTAAABnwAACCQAAAUJ",
+            "dock_state": "AAAA/wAAAAH9AAAAAwAAAAAAAASSAAACOvwCAAAAAfsAAAAeAHYAaQBkAGUAbwBfAHAAbABhAHkAZQByAF8AZAB3AQAAAB0AAAI6AAAAZgD///8AAAABAAABPAAAAjr8AgAAAAH7AAAAGgB0AGkAbQBlAHMAdABhAG0AcABzAF8AZAB3AQAAAB0AAAI6AAAApgD///8AAAADAAAF0gAAAPv8AQAAAAH7AAAAFgB0AGkAbQBlAGwAaQBuAGUAXwBkAHcBAAAAAAAABdIAAACGAP////////wAAAI6AAAABAAAAAQAAAAIAAAACPwAAAAA",
+            "dock_widgets": {
+                "timeline_dw": {
+                    "geometry": "AdnQywADAAAAAAAAAAACWwAABdEAAANVAAAAAAAAAAD//////////wAAAAAAAAAACgAAAAAAAAACWwAABdEAAANV",
+                    "visible": True
+                },
+                "timestamps_dw": {
+                    "geometry": "AdnQywADAAAAAASWAAAAHQAABdEAAAJWAAAAAAAAAAD//////////wAAAAAAAAAACgAAAASWAAAAHQAABdEAAAJW",
+                    "visible": True
+                },
+                "video_player_dw": {
+                    "geometry": "AdnQywADAAAAAAAAAAAAHQAABJEAAAJWAAAAAAAAAAD//////////wAAAAAAAAAACgAAAAAAAAAAHQAABJEAAAJW",
+                    "visible": True
+                }
+            }
+        }
+    },
     playback: Playback = Playback()
     key_bindings: KeyBindings = KeyBindings()
+    scoring_data: ScoringData = ScoringData()
+
+    # when the project is loaded from a file the uid and created/modified dates will be strings. Convert them to the correct type
+    @field_validator("created", "modified", mode="after")
+    def model_validator(cls, values):
+        if isinstance(values["created"], str):
+            values["created"] = datetime.datetime.fromisoformat(values["created"])
+        if isinstance(values["modified"], str):
+            values["modified"] = datetime.datetime.fromisoformat(values["modified"])
+        if isinstance(values["layouts"], list):
+            values["layouts"] = values["layouts"][0]
+        return values
+
+    @staticmethod
+    def help_text():
+        return {
+            "uid": "Unique identifier for the project",
+            "name": "Name of the project",
+            "scorer": "Name of the scorer",
+            "created": "Date the project was created",
+            "modified": "Date the project was last modified",
+            "file_location": "Location of the settings file",
+        }
+    
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        log.debug(f"Setting\t{name}\tto\t{value}")
+        return super().__setattr__(name, value)
+
+    def load_from_file(self, file=None) -> Union[str, None]:
+        if file is None:
+            file = self.file_location
+        if not os.path.exists(file):
+            log.error(f"File {file} does not exist")
+            raise FileNotFoundError(f"File {file} does not exist")
+
+        with zipfile.ZipFile(file, "r") as zipf:
+            with zipf.open("settings.json", "r") as f:
+                project_settings = json.load(f)
+        
+        if project_settings is None:
+            log.error(f"File {file} is empty")
+            raise ValueError(f"File {file} is empty")
+        # FIXME: make this fault tolerant
+        self.uid = project_settings.get("uid", "")
+        self.name = project_settings.get("name", "")
+        self.scorer = project_settings.get("scorer", "")
+        self.created = project_settings.get("created", datetime.datetime.now())
+        self.modified = project_settings.get("modified", datetime.datetime.now())
+        self.file_location = project_settings.get("file_location", "")
+        self.layouts = project_settings.get("layouts", {})
+        self.playback = Playback(**project_settings["playback"])
+        self.key_bindings = KeyBindings(**project_settings["key_bindings"])
+        self.scoring_data = ScoringData(**project_settings["scoring_data"])
+
+    def save(self, file=None):
+        if file is None:
+            file = self.file_location
+        if not os.path.exists(os.path.dirname(file)):
+            os.makedirs(os.path.dirname(file))
+        try:
+            dump = json.dumps(self.model_dump(), indent=4, cls=CustomEncoder)
+        except Exception as e:
+            log.error(f"Error dumping project settings: {e}")
+            # propagate the error
+            raise e
+        with zipfile.ZipFile(file, "w") as zipf:
+            zipf.writestr("settings.json", dump)
+
+class ApplicationSettings(AbstSettings):
+    """These compose the overall settings of the application. There can be multiple projects within the application settings, though the spplication setting shouldn't change."""
+    version: str = ""
+    file_location: str = user_data_dir("settings.json")
+    theme: Literal["dark", "light"] = "dark"
+    joke_type: Literal["programming", "dad"] = "programming"
     window_size: Tuple[int, int] = (1280, 720)
     window_position: Tuple[int, int] = (0, 0)
-    scoring_data: ScoringData = ScoringData()
+    projects: List[Tuple[uidT, project_file_locationT]] = [] # list of tuples with "uid" and "file_location"
 
     def load(self, file_location):
         with open(file_location, "r") as f:
             project_settings = json.load(f)
-            self.project_name = project_settings["project_name"]
-            self.settings_file_location = project_settings["settings_file_location"]
-            self.theme = project_settings["theme"]
-            self.joke_type = project_settings["joke_type"]
-            self.video_file_location = project_settings["video_file_location"]
-            self.video_file_name = project_settings["video_file_name"]
-            self.scoring = Scoring(**project_settings["scoring"])
-            self.playback = Playback(**project_settings["playback"])
-            self.key_bindings = KeyBindings(**project_settings["key_bindings"])
-            self.window_size = project_settings["window_size"]
-            self.window_position = project_settings["window_position"]
-            self.scoring_data = ScoringData(**project_settings["scoring_data"])
+        if project_settings is None:
+            return
+        
+        self.version = project_settings.get("version", "")
+        self.theme = project_settings.get("theme", "dark")
+        self.joke_type = project_settings.get("joke_type", "programming")
+        self.window_size = tuple(project_settings.get("window_size", (1280, 720)))
+        self.window_position = tuple(project_settings.get("window_position", (0, 0)))
+        self.projects = [tuple(p) for p in project_settings.get("projects", ())]
+
+    @field_validator("projects", mode="after")
+    def model_validator(cls, values):
+        for project in values["projects"]:
+            if not os.path.exists(project[1]):
+                values["projects"].remove(project)
+        return values
 
     def save(self, file_location=None):
         if file_location is None:
-            file_location = self.settings_file_location
+            file_location = self.file_location
         if not os.path.exists(os.path.dirname(file_location)):
             os.makedirs(os.path.dirname(file_location))
         with open(file_location, "w") as f:
-            json.dump(self.model_dump(), f, indent=4)
+            json.dump(self.model_dump(), f, indent=4, cls=CustomEncoder)
 
     def __setattr__(self, name: str, value: Any) -> None:
         log.debug(f"Setting\t{name}\tto\t{value}")
@@ -448,3 +574,4 @@ class ProjectSettings(AbstSettings):
             "scoring_data": "Data associated with the scoring session",
             "behavior_tracks": "Tracks of behaviors",
         }
+

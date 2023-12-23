@@ -30,7 +30,8 @@ class BehaviorTrack(QGraphicsRectItem):
         self.y_position = y_position
         self.track_height = track_height
         self.behavior_type = behavior_type
-        # have the name of the track be the tooltip and be on the left side of the track
+        # TODO: Maybe radomize this across tracks from a palette? 
+        self.item_color = "#6aa1f5" # default color
         self.setToolTip(name)
         self.setBrush(QBrush(QColor("#545454")))
 
@@ -143,6 +144,14 @@ class BehaviorTrack(QGraphicsRectItem):
     def update_name(self, name: str):
         self.name = name
         self.track_name_item.setPlainText(name)
+
+    def update_item_colors(self, color: str):
+        self.item_color = color
+        _color = QColor(color)
+        for item in self.behavior_items.values():
+            item.base_color = _color
+            item.highlight_color = _color.lighter(150)
+            item.setBrush(QBrush(_color))
 
     def load(self, data: dict):
         self.name = data["name"]

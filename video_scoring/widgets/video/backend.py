@@ -114,8 +114,8 @@ class VideoCapture(QMutex):
         try:
             self.vc = self.video.cap
             self.vc.set(cv2.CAP_PROP_BUFFERSIZE, 5000)
+            self.im_format = "".join([chr((int(self.vc.get(cv2.CAP_PROP_FOURCC)) >> 8 * i) & 0xFF) for i in range(4)])
             self.updateFPS(self.getFrameRate())
-            self.vc.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"mp4v"))
 
         except Exception as e:
             self.updateStatus(f"Failed connect open file: {e}")

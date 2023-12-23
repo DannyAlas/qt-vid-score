@@ -27,6 +27,8 @@ def logging_exept_hook(exctype, value, trace):
 sys.excepthook = logging_exept_hook
 
 parser = argparse.ArgumentParser(description="Video Scoring")
+# we can be passed a .vsap file to open there will be no args passed to the app just a file
+parser.add_argument("file", nargs="?", help="Video Scoring Archive File")
 parser.add_argument("--debug", action="store_true", help="Enable debug logging")
 parser.add_argument(
     "--debug-qt", action="store_true", help="Enable debug logging for Qt"
@@ -53,6 +55,7 @@ if args.version:
 
 
 if __name__ == "__main__":
+      
     app = QApplication(sys.argv)
     app.setApplicationName("Video Scoring")
     app.setOrganizationName("Daniel Alas")
@@ -61,4 +64,6 @@ if __name__ == "__main__":
     main_window = MainWindow()
     qdarktheme.setup_theme(theme="auto", corner_shape="rounded")
     main_window.show()
+    if args.file:
+        main_window.open_project_file(args.file)
     sys.exit(app.exec())

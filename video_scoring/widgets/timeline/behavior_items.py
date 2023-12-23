@@ -98,10 +98,11 @@ class OnsetOffsetItem(QGraphicsRectItem):
         self.setAcceptHoverEvents(True)
         self.signals.unhighlight_sig.connect(self.unhighlight)
         # set geometry
-        self.base_color = QColor("#6aa1f5")
+        self.base_color = QColor(self.parent.item_color)
         self.setBrush(QBrush(self.base_color))
-        self.highlight_color = QColor("#8cbdfa")
+        self.highlight_color = self.base_color.lighter(120)
 
+    # TODO: is there a reason we don't use the built in setters/getters? Fix this if not 
     @property
     def onset(self):
         """

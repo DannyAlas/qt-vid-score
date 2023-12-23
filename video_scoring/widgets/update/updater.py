@@ -27,8 +27,8 @@ class UpdateCheck(QThread):
     update_error = Signal(str)
     no_update = Signal()
 
-    def __init__(self, version, parent: "QMainWindow" = None):
-        super().__init__(parent)
+    def __init__(self, version):
+        super().__init__()
         global VERSION
         VERSION = version
         self.url = "https://api.github.com/repos/DannyAlas/qt-vid-score/releases/latest"
