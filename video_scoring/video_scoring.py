@@ -352,8 +352,7 @@ class MainWindow(QMainWindow):
         self.theme_menu.addAction("Dark", lambda: self.change_theme("dark"))
         self.theme_menu.addAction("Light", lambda: self.change_theme("light"))
         self.view_menu.addSeparator()
-        self.view_menu.addAction("Full Screen", self.showFullScreen)
-        self.view_menu.addAction("Normal Screen", self.showNormal)
+        self.toggle_screen_action = self.view_menu.addAction("Full Screen", self.toggle_screen)
         self.layouts_menu = self.view_menu.addMenu("Layouts")
         if self.layouts_menu is None:
             raise Exception("Failed to create layout menu")
@@ -828,6 +827,15 @@ class MainWindow(QMainWindow):
         log.addHandler(fileHandler)
         log.setLevel(self.logging_level)
         self.log = log
+
+    def toggle_screen(self):
+        """Toggle between full screen and normal screen"""
+        if self.isFullScreen():
+            self.toggle_screen_action.setText("Full Screen")
+            self.showNormal()
+        else:
+            self.showFullScreen()
+            self.toggle_screen_action.setText("Normal Screen")
 
     def help(self):
         # open browser to github
