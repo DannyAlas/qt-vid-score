@@ -1,5 +1,6 @@
 import json
 from math import e
+from uuid import uuid4
 
 import requests
 from qtpy import QtCore, QtGui, QtWidgets
@@ -88,7 +89,7 @@ class FeedbackDialog(QtWidgets.QDialog):
             return
         event_id = last_event_id()
         if not event_id:
-            event_id = sentry_sdk.capture_message("Feedback submitted without event id")
+            event_id = sentry_sdk.capture_message(str(uuid4()))
         payload = json.dumps(
             {
                 "event_id": event_id,

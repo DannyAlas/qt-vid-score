@@ -39,7 +39,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "C:\dev\projects\qt-vid-scoring\qt-vid-score\dist\Video Scoring\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "C:\dev\projects\qt-vid-scoring\qt-vid-score\dist\video_scoring\video_scoring.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "C:\dev\projects\qt-vid-scoring\qt-vid-score\dist\Video Scoring\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
