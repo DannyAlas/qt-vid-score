@@ -1,63 +1,109 @@
 import datetime
-from re import T
-from uuid import uuid4
-
-from qtpy.QtCore import QByteArray
 import json
 import logging
-import zipfile
 import os
 import sys
-from typing import Any, List, Literal, Tuple, Union, Dict, TypeVar
-from uuid import uuid4, UUID
-
-from pydantic import BaseModel, Field, UUID4, field_validator
-
+import zipfile
+from typing import Any, Dict, List, Literal, Tuple, TypeVar, Union
+from uuid import UUID, uuid4
+import subprocess
+import numpy as np
+import pandas as pd
+from pydantic import BaseModel, Field, field_validator
+from qtpy.QtCore import QByteArray
+import sentry_sdk
 log = logging.getLogger()
 
 uidT = TypeVar("uidT", str, UUID)
 project_file_locationT = TypeVar("project_file_locationT", str, os.PathLike)
 dtT = TypeVar("dtT", datetime.datetime, str)
-def user_data_dir(file_name):
-    r"""
-    Get OS specific data directory path for Video Scoring.
 
+VERSION = os.environ.get("VERSION", "")
+if VERSION == "":
+    raise ValueError("VERSION environment variable not set")
+
+
+def user_data_dir(file_name: Union[str, None] = None):
+    r"""
+    Get OS specific data directory path for a file in the Video Scoring application data directory. Will be version specific.
+
+    Parameters
+    ----------
+    file_name: Union[str, None]
+        The name of the file to join with the data directory path, if None will return the data directory path
+
+    Returns
+    -------
+    `str`
+        Path to the data directory or the file in the data directory
+
+    Notes
+    -----
     Typical user data directories are:
-        macOS:    ~/Library/Application Support/Video Scoring
-        Unix:     ~/.local/share/Video Scoring   # or in $XDG_DATA_HOME, if defined
-        Win 10:   C:\Users\<username>\AppData\Local\Video Scoring
+        macOS:    ~/Library/Application Support/Video Scoring/<version>
+        Unix:     ~/.local/share/Video Scoring/<version>
+        Unix XDG:      $XDG_DATA_HOME/Video Scoring/<version>
+        Win 10:   C:\Users\<username>\AppData\Local\Video Scoring\<version>
+
     For Unix, we follow the XDG spec and support $XDG_DATA_HOME if defined.
-    :param file_name: file to be fetched from the data dir
-    :return: full path to the user-specific data dir
     """
     # get os specific path
-    if sys.platform.startswith("win"):
+    if sys.platform.startswith("win") or sys.platform == 'cygwin' or sys.platform == 'msys':
         os_path = os.getenv("LOCALAPPDATA")
     elif sys.platform.startswith("darwin"):
         os_path = "~/Library/Application Support"
     else:
-        # linux
+        # linux if $XDG_DATA_HOME is defined, use it
         os_path = os.getenv("XDG_DATA_HOME", "~/.local/share")
 
-    # join with Video Scoring dir
-    path = os.path.join(str(os_path), "Video Scoring")
+    # join with Video Scoring dir and version
+    path = os.path.join(str(os_path), "Video Scoring", VERSION)
+    if file_name is None:
+        return path
+    else:
+        return os.path.join(path, file_name)
 
-    return os.path.join(path, file_name)
+def cmd_run(cmd):
+  try:
+    return subprocess.run(cmd, shell=True, capture_output=True, check=True, encoding="utf-8") \
+                     .stdout \
+                     .strip()
+  except:
+    return ""
 
-class CustomEncoder(json.JSONEncoder):
+def get_device_id():
+
+    if sys.platform.startswith('linux'):
+        return cmd_run('cat /var/lib/dbus/machine-id') or cmd_run('cat /etc/machine-id')
+
+    if sys.platform == 'darwin':
+        return cmd_run("ioreg -d2 -c IOPlatformExpertDevice | awk -F\\\" '/IOPlatformUUID/{print $(NF-1)}'")
+
+    if sys.platform.startswith('openbsd') or sys.platform.startswith('freebsd'):
+        return cmd_run('cat /etc/hostid') or cmd_run('kenv -q smbios.system.uuid')
+
+    if sys.platform == 'win32' or sys.platform == 'cygwin' or sys.platform == 'msys':
+        return cmd_run('wmic csproduct get uuid').split('\n')[2].strip()
+
+
+class SettingsEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, UUID):
             return obj.__str__()
         if isinstance(obj, datetime.datetime):
             return obj.__str__()
         if isinstance(obj, QByteArray):
-            # will be serialized as base64 encoded string
             return obj.data().decode()
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
         return json.JSONEncoder.default(self, obj)
+
 
 class CustomDecoder(json.JSONDecoder):
     def __init__(self, *args, **kwargs):
-        json.JSONDecoder.__init__(self, object_hook=self.dict_to_object, *args, **kwargs)
+        json.JSONDecoder.__init__(
+            self, object_hook=self.dict_to_object, *args, **kwargs
+        )
 
     def dict_to_object(self, d):
         if "uid" in d:
@@ -66,7 +112,15 @@ class CustomDecoder(json.JSONDecoder):
             d["created"] = datetime.datetime.fromisoformat(d["created"])
         if "modified" in d:
             d["modified"] = datetime.datetime.fromisoformat(d["modified"])
+        if "layouts" in d:
+            for layout in d["layouts"]:
+                d["layouts"][layout] = Layout(**d["layouts"][layout])
+        if "mask" in d:
+            d["mask"] = np.array(d["mask"])
+        if "reference" in d:
+            d["reference"] = np.array(d["reference"])
         return d
+
 
 class AbstSettings(BaseModel):
     @staticmethod
@@ -123,6 +177,7 @@ class KeyBindings(AbstSettings):
     exit: str = "Q"
     help: str = "H"
     save_timestamp: str = "S"
+    save_unsure_timestamp: str = "Shift+S"
     show_stats: str = "T"
     undo: str = "Ctrl+Z"
     redo: str = "Ctrl+Shift+Z"
@@ -149,6 +204,8 @@ class KeyBindings(AbstSettings):
     move_to_next_timestamp: str = "Shift+right"
     select_current_timestamp: str = "Enter"
     delete_selected_timestamp: str = "delete"
+    set_marker_in: str = "U"
+    set_marker_out: str = "I"
 
     @staticmethod
     def help_text():
@@ -156,6 +213,7 @@ class KeyBindings(AbstSettings):
             "exit": "Quit the program and save all timestamps to file",
             "help": "Display the help menu",
             "save_timestamp": "Save timestamp of current frame",
+            "save_unsure_timestamp": "Save timestamp of current frame as unsure",
             "show_stats": "Display the current stats",
             "undo": "Undo the last action",
             "redo": "Redo the last undo",
@@ -193,150 +251,46 @@ class KeyBindings(AbstSettings):
         return self.__dict__.items()
 
 
-class TDTData:
-    def __init__(self, block: dict):
-        """
-        A class to access the data of a TDT block
+class TDTData(BaseModel):
+    """
+    A class to serialize the data of a TDT block.
 
-        Parameters
-        ----------
-        block : dict
-            The TDT block. This is the output of `tdt.read_block()`
+    Attributes
+    ----------
+    tankpath : str
+        The path to the tank file
+    blockname : str
+        The name of the block
+    blockpath : str
+        The path to the block file
+    start_date : str
+        The start date of the block
+    utc_start_time : str
+        The start time of the block in UTC
+    stop_date : str
+        The stop date of the block
+    utc_stop_time : str
+        The stop time of the block in UTC
+    duration : float
+        The duration of the block in seconds
+    video_path : Union[None, str, List[str]]
+        The path to the video file(s)
+    frame_ts_dict : Union[None, Dict[int, float]]
+        A dictionary of the TDT timestamps for each video frame
+    """
 
-        Attributes
-        ----------
-        tankpath : str
-            The path to the tank file
-        blockname : str
-            The name of the block
-        blockpath : str
-            The path to the block file
-        start_date : str
-            The start date of the block
-        utc_start_time : str
-            The start time of the block in UTC
-        stop_date : str
-            The stop date of the block
-        utc_stop_time : str
-            The stop time of the block in UTC
-        duration : float
-            The duration of the block in seconds
-        stream_channel : str
-            The channel of the stream
-        snip_channel : str
-            The channel of the snips
-        epocs : dict
-            The epocs
-        streams : dict
-            The streams
-        snips : dict
-            The snips
-        scalars : dict
-            The scalars
-        video_path : Union[None, str, List[str]]
-            The path to the video file(s)
-        """
+    tankpath: str = ""
+    blockname: str = ""
+    blockpath: str = ""
+    start_date: str = ""
+    utc_start_time: str = ""
+    stop_date: str = ""
+    utc_stop_time: str = ""
+    duration: str = ""
+    video_path: Union[None, str, List[str]] = None
+    frame_ts_dict: Union[None, Dict[int, float]] = None
 
-        # the block is a `TDStruct` type which is just a python dict with an overloaded __repr__
-        # the block contains a list of keys which are the names of the different data types
-        # each data type is itself another TDTStruct till we get to the data itself
-
-        # for now we will NOT convert the TDStruct to an object (we may change this later)
-        # we will simply provide methods to access the data in the TDStruct through this class
-        self.block = block
-
-    @property
-    def tankpath(self):
-        try:
-            return self.block.info.tankpath
-        except:
-            return None
-
-    @property
-    def blockname(self):
-        try:
-            return self.block.info.blockname
-        except:
-            return None
-
-    @property
-    def blockpath(self):
-        return os.path.join(self.tankpath, self.blockname)
-
-    @property
-    def start_date(self):
-        try:
-            return self.block.info.start_date
-        except:
-            return None
-
-    @property
-    def utc_start_time(self):
-        try:
-            return self.block.info.utc_start_time
-        except:
-            return None
-
-    @property
-    def stop_date(self):
-        try:
-            return self.block.info.stop_date
-        except:
-            return None
-
-    @property
-    def utc_stop_time(self):
-        try:
-            return self.block.info.utc_stop_time
-        except:
-            return None
-
-    @property
-    def duration(self):
-        try:
-            return self.block.info.duration
-        except:
-            return None
-
-    @property
-    def stream_channel(self):
-        try:
-            return self.block.info.stream_channel
-        except:
-            return None
-
-    @property
-    def snip_channel(self):
-        try:
-            return self.block.info.snip_channel
-        except:
-            return None
-
-    @property
-    def epocs(self):
-        """epocs are values stored with onset and offset timestamps that can be used to create time-based filters on your data. If Runtime Notes were enabled in Synapse, they will appear in data.epocs.Note. The notes themselves will be in data.epocs.Note.notes."""
-        return self.block.epocs
-
-    @property
-    def streams(self):
-        """streams are continuous single channel or multichannel recordings"""
-        return self.block.streams
-
-    @property
-    def snips(self):
-        """snips are short snippets of data collected on a trigger. For example, action potentials recorded around threshold crossings in the Spike Sorting gizmos, or fixed duration snippets recorded by the Strobe Store gizmo.
-
-        This structure includes the waveforms, channel numbers, sort codes, trigger timestamps, and sampling rate.
-        """
-        return self.block.snips
-
-    @property
-    def scalars(self):
-        """scalars are similar to epocs but can be single or multi-channel values and only store an onset timestamp when triggered"""
-        return self.block.scalars
-
-    @property
-    def video_path(self):
+    def get_video_path(self):
         """
         We will assume that the video file is in the same folder as the tank file.
 
@@ -364,8 +318,10 @@ class TDTData:
         else:
             return os.path.join(self.blockpath, video_files[0])
 
-    def create_frame_ts(
-        self, epoch_type: Union[Literal["onset"], Literal["offset"]] = "onset"
+    def get_frame_ts(
+        self,
+        block: dict,
+        epoch_type: Union[Literal["onset"], Literal["offset"]] = "onset",
     ) -> dict:
         """
         Creates a dictionary of the timestamps for each video frame. The keys are the frame numbers and the values are the timestamps. The timestamps are either the onset or offset timestamps of the epoc specified by `epoch_type`.
@@ -381,26 +337,56 @@ class TDTData:
             If there is no video file
         """
         frame_ts = {}
-        if self.video_path is None:
-            raise ValueError("There is no video file")
+
+        if epoch_type == "onset":
+            for i in range(len(block.epocs.Cam1.onset)):
+                t = block.epocs.Cam1.onset[i]
+                frame_ts[i] = t
+        elif epoch_type == "offset":
+            for i in range(len(block.epocs.Cam1.offset)):
+                t = block.epocs.Cam1.offset[i]
+                frame_ts[i] = t
         else:
-            if epoch_type == "onset":
-                for i in range(len(self.epocs.Cam1.onset)):
-                    t = self.epocs.Cam1.onset[i]
-                    frame_ts[i] = t
-            elif epoch_type == "offset":
-                for i in range(len(self.epocs.Cam1.offset)):
-                    t = self.epocs.Cam1.offset[i]
-                    frame_ts[i] = t
-            else:
-                raise ValueError('epoch_type must be either "onset" or "offset"')
+            raise ValueError('epoch_type must be either "onset" or "offset"')
 
         return frame_ts
+
+    def load_from_dict(self, data: dict):
+        self.tankpath = data.get("tankpath", None)
+        self.blockname = data.get("blockname", None)
+        self.blockpath = data.get("blockpath", None)
+        self.video_path = data.get("video_path", None)
+        self.start_date = data.get("start_date", None)
+        self.utc_start_time = data.get("utc_start_time", None)
+        self.stop_date = data.get("stop_date", None)
+        self.utc_stop_time = data.get("utc_stop_time", None)
+        self.duration = data.get("duration", None)
+        self.video_path = data.get("video_path", None)
+        self.frame_ts_dict = data.get("frame_ts_dict", None)
+
+    def load_from_block(self, block: dict):
+        # the block is a `TDStruct` type which is just a python dict with an overloaded __repr__
+        # the block contains a list of keys which are the names of the different data types
+        # each data type is itself another TDTStruct till we get to the data itself
+
+        # for now we will NOT convert the TDStruct to an object (we may change this later)
+        # we will simply provide methods to access the data in the TDStruct through this class
+        self.tankpath = str(block.info.tankpath)
+        self.blockname = str(block.info.blockname)
+        self.blockpath = os.path.join(self.tankpath, self.blockname)
+        self.start_date = str(block.info.start_date)
+        self.utc_start_time = str(block.info.utc_start_time)
+        self.stop_date = str(block.info.stop_date)
+        self.utc_stop_time = str(block.info.utc_stop_time)
+        self.duration = str(block.info.duration)
+        self.video_path = self.get_video_path()
+        self.frame_ts_dict = self.get_frame_ts(block=block)
 
 
 class OOBehaviorItemSetting(BaseModel):
     onset: int = 0
     offset: int = 0
+    unsure: bool = False
 
 
 class BehaviorTrackSetting(BaseModel):
@@ -411,47 +397,130 @@ class BehaviorTrackSetting(BaseModel):
 
 class ScoringData(AbstSettings):
     """Represents the data associated with a scoring session"""
-    uid: uidT = ""
+
+    uid: uidT = Field(default_factory=uuid4)
     video_file_location: str = ""
-    video_file_name: str = ""
     timestamp_file_location: str = ""
     timestamp_data: dict = {}
+    tdt_data: Union[TDTData, None] = None
     scoring_type: Literal["onset/offset", "single"] = "onset/offset"
     behavior_tracks: List[BehaviorTrackSetting] = []
 
+    def __setattr__(self, name: str, value: Any) -> None:
+        log.debug(f"Setting\t{name}\tto\t{value}")
+        return super().__setattr__(name, value)
+
+
+class ROI(BaseModel):
+    uid: str = ""
+    mask: Union[None, np.ndarray] = None
+
+    class Config:
+        arbitrary_types_allowed = True
+
+
+class Crop(BaseModel):
+    x1: int = 0
+    x2: int = 0
+    y1: int = 0
+    y2: int = 0
+
+
+class ROI_Analysis(BaseModel):
+    threshold: float = 170.0
+    method: Literal["Absolute", "Light", "Dark"] = "Absolute"
+    roi: Union[None, ROI] = None
+    crop: Union[None, Crop] = None
+    reference: Union[None, np.ndarray] = None
+    diff_dict: Union[None, dict[int, bool]] = None
+
+    class Config:
+        arbitrary_types_allowed = True
+
+
+class LocationAnalysis(BaseModel):
+    """Represents the data associated with a analysis session"""
+
+    region_names: Union[None, List[str]] = None
+    loc_thresh: float = 99.5
+    use_window: bool = True
+    window_size: int = 100
+    window_weight: float = 0.9
+    method: Literal["dark", "abs", "light"] = "dark"
+    rmv_wire: bool = False
+    wire_krn: int = 5
+    location_df: Union[None, pd.DataFrame] = None
+    rois: List[ROI] = []
+    crop: Union[None, Crop] = None
+
+    class Config:
+        arbitrary_types_allowed = True
+
+
+class AnalysisSettings(BaseModel):
+    """Represents the data associated with a analysis session"""
+
+    video_file_location: str = ""
+    start: int = 0
+    end: Union[None, int] = None
+    dsmpl: float = 1.0
+    roi_analysis: ROI_Analysis = ROI_Analysis()
+    location_analysis: LocationAnalysis = LocationAnalysis()
+
+    class Config:
+        arbitrary_types_allowed = True
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        log.debug(f"Setting\t{name}\tto\t{value}")
+        return super().__setattr__(name, value)
+
+    def help_text(self):
+        return {
+            "file": "Path to the video file",
+            "start": "Start frame",
+            "end": "End frame",
+            "region_names": "List of region names",
+            "dsmpl": "Downsample factor",
+            "stretch": "Stretch factor",
+            "scale": "Scale factor",
+            "reference": "Reference frame",
+            "loc_thresh": "Represents a percentile threshold and can take on values between 0-100.  Each frame is compared to the reference frame.  Then, to remove the influence of small fluctuations, any differences below a given percentile (relative to the maximum difference) are set to 0.  We use a value of 99.5 with good success.",
+            "use_window": "This parameter is incredibly helpful if objects other than the animal temporarily enter the field of view during tracking (such as an experimenter’s hand manually delivering a stimulus or reward).  When use_window is set to True, a square window with the animal's position on the prior frame at its center is given more weight when searching for the animal’s location (because an animal presumably can't move far from one frame to the next).  In this way, the influence of objects entering the field of view can be avoided.  If use_window is set to True, the user should consider window_size and window_weight.",
+            "window_size": "This parameter only impacts tracking when use_window is set to True.  This defines the size of the square window surrounding the animal that will be more heavily weighted in pixel units.  We typically set this to 2-3 times the animal’s size (if an animal is 100 pixels at its longest, we will set window_size to 200).  Note that to determine the size of the animal in pixels, the user can reference any image of the arena presented in ezTrack, which has the pixel coordinate scale on its axes.",
+            "window_weight": "This parameter only impacts tracking when use_window is set to True.  When window_weight is set to 1, pixels outside of the window are not considered at all; at 0, they are given equal weight. Notably, setting a high value that is still not equal to 1 (e.g., 0.9) should allow ezTrack to more rapidly find the animal if, by chance, it moves out of the window.",
+            "method": "This parameter determines the luminosity of the object to search for relative to the background and accepts values of 'abs', 'light', and 'dark'. Option 'abs' does not take into consideration whether the animal is lighter or darker than the background and will therefore track the animal across a wide range of backgrounds. 'light' assumes the animal is lighter than the background, and 'dark' assumes the animal is darker than the background. Option 'abs' generally works well, but there are situations in which you may wish to use the others.  For example, if a tether is being used that is opposite in color to the animal (a white wire and a black mouse), the ‘abs’ method is much more likely to be biased by the wire, whereas option ‘dark’ will look for the darker mouse.",
+            "rmv_wire": "Ifset to True, an algorithm is used to attempt to remove wires from the field of view.  If rmv_wire is set to True, the user should consider wire_krn.",
+            "wire_krn": "This parameter only impacts tracking when rmv_wire is set to True. This value should be set between the width of the wire and the width of the animal, in pixel units. We typically set this to 5-10.  Note that to determine the size of the animal in pixels, the user can reference any image which has the pixel coordinate scale on its axes.",
+        }
+
+
+class DockWidgetState(BaseModel):
+    geometry: str = ""
+    visible: bool = True
+
+
+class Layout(BaseModel):
+    geometry: str = ""
+    dock_state: str = ""
+    dock_widgets: dict[str, DockWidgetState] = {}
+
+
 class ProjectSettings(AbstSettings):
     """This will be an individual project within the application settings. Each project will have its own settings file."""
+
     uid: uidT = Field(default_factory=uuid4)
     name: str = ""
     scorer: str = ""
     created: dtT = Field(default_factory=datetime.datetime.now)
     modified: dtT = Field(default_factory=datetime.datetime.now)
     file_location: str = ""
-    layouts: Dict[str, Any] = {
-        "Main": {
-            "geometry": "AdnQywADAAAAAAJTAAABgAAACCQAAAUJAAACUwAAAZ8AAAgkAAAFCQAAAAAAAAAACgAAAAJTAAABnwAACCQAAAUJ",
-            "dock_state": "AAAA/wAAAAH9AAAAAwAAAAAAAASSAAACOvwCAAAAAfsAAAAeAHYAaQBkAGUAbwBfAHAAbABhAHkAZQByAF8AZAB3AQAAAB0AAAI6AAAAZgD///8AAAABAAABPAAAAjr8AgAAAAH7AAAAGgB0AGkAbQBlAHMAdABhAG0AcABzAF8AZAB3AQAAAB0AAAI6AAAApgD///8AAAADAAAF0gAAAPv8AQAAAAH7AAAAFgB0AGkAbQBlAGwAaQBuAGUAXwBkAHcBAAAAAAAABdIAAACGAP////////wAAAI6AAAABAAAAAQAAAAIAAAACPwAAAAA",
-            "dock_widgets": {
-                "timeline_dw": {
-                    "geometry": "AdnQywADAAAAAAAAAAACWwAABdEAAANVAAAAAAAAAAD//////////wAAAAAAAAAACgAAAAAAAAACWwAABdEAAANV",
-                    "visible": True
-                },
-                "timestamps_dw": {
-                    "geometry": "AdnQywADAAAAAASWAAAAHQAABdEAAAJWAAAAAAAAAAD//////////wAAAAAAAAAACgAAAASWAAAAHQAABdEAAAJW",
-                    "visible": True
-                },
-                "video_player_dw": {
-                    "geometry": "AdnQywADAAAAAAAAAAAAHQAABJEAAAJWAAAAAAAAAAD//////////wAAAAAAAAAACgAAAAAAAAAAHQAABJEAAAJW",
-                    "visible": True
-                }
-            }
-        }
-    },
+    layouts: dict[str, Layout] = {}
     playback: Playback = Playback()
     key_bindings: KeyBindings = KeyBindings()
     scoring_data: ScoringData = ScoringData()
+    analysis_settings: AnalysisSettings = AnalysisSettings()
+    last_layout: Union[Layout, None] = None
 
-    # when the project is loaded from a file the uid and created/modified dates will be strings. Convert them to the correct type
     @field_validator("created", "modified", mode="after")
     def model_validator(cls, values):
         if isinstance(values["created"], str):
@@ -472,7 +541,6 @@ class ProjectSettings(AbstSettings):
             "modified": "Date the project was last modified",
             "file_location": "Location of the settings file",
         }
-    
 
     def __setattr__(self, name: str, value: Any) -> None:
         log.debug(f"Setting\t{name}\tto\t{value}")
@@ -487,12 +555,11 @@ class ProjectSettings(AbstSettings):
 
         with zipfile.ZipFile(file, "r") as zipf:
             with zipf.open("settings.json", "r") as f:
-                project_settings = json.load(f)
-        
+                project_settings = json.load(f, cls=CustomDecoder)
+
         if project_settings is None:
             log.error(f"File {file} is empty")
             raise ValueError(f"File {file} is empty")
-        # FIXME: make this fault tolerant
         self.uid = project_settings.get("uid", "")
         self.name = project_settings.get("name", "")
         self.scorer = project_settings.get("scorer", "")
@@ -503,6 +570,43 @@ class ProjectSettings(AbstSettings):
         self.playback = Playback(**project_settings["playback"])
         self.key_bindings = KeyBindings(**project_settings["key_bindings"])
         self.scoring_data = ScoringData(**project_settings["scoring_data"])
+        if project_settings.get("analysis_settings", None) is not None:
+            self.analysis_settings = AnalysisSettings(
+                **project_settings["analysis_settings"]
+            )
+        else:
+            self.analysis_settings = AnalysisSettings()
+        if project_settings["last_layout"] is not None:
+            self.last_layout = Layout(**project_settings["last_layout"])
+        self.load_default_layouts()
+        sentry_sdk.add_breadcrumb(
+            category="project_settings", message=f"loaded project_settings file: {str(self.uid)} - {self.name}", level="info"
+        )
+        
+    def load_default_layouts(self):
+        if "Main" not in self.layouts:
+            self.layouts["Main"] = Layout(
+                geometry="AdnQywADAAAAAAHEAAABMQAACCoAAATXAAABxAAAAVAAAAgqAAAE1wAAAAAAAAAACgAAAAHEAAABUAAACCoAAATX",
+                dock_state="AAAA/wAAAAH9AAAAAwAAAAAAAAAAAAAAAPwCAAAAAvsAAAAWAHMAZQB0AHQAaQBuAGcAcwBfAGQAdwAAAAAA/////wAAAcMA////+wAAAB4AdgBpAGQAZQBvAF8AcABsAGEAeQBlAHIAXwBkAHcBAAAAAP////8AAAAAAAAAAAAAAAEAAAI0AAACCPwCAAAAAfsAAAAaAHQAaQBtAGUAcwB0AGEAbQBwAHMAXwBkAHcBAAAAHQAAAggAAACmAP///wAAAAMAAAZnAAABSvwBAAAAAfsAAAAWAHQAaQBtAGUAbABpAG4AZQBfAGQAdwEAAAAAAAAGZwAAAIYA////AAAELwAAAggAAAAEAAAABAAAAAgAAAAI/AAAAAA=",
+                dock_widgets={
+                    "video_player_dw": DockWidgetState(
+                        geometry="AdnQywADAAAAAAAAAAAAHQAABC4AAAIkAAAAAAAAAAD//////////wAAAAAAAAAACgAAAAAAAAAAHQAABC4AAAIk",
+                        visible=True,
+                    ),
+                    "timestamps_dw": DockWidgetState(
+                        geometry="AdnQywADAAAAAAQzAAAAHQAABmYAAAIkAAAAAAAAAAD//////////wAAAAAAAAAACgAAAAQzAAAAHQAABmYAAAIk",
+                        visible=True,
+                    ),
+                    "timeline_dw": DockWidgetState(
+                        geometry="AdnQywADAAAAAAAAAAACKQAABmYAAANyAAAAAAAAAAD//////////wAAAAAAAAAACgAAAAAAAAACKQAABmYAAANy",
+                        visible=True,
+                    ),
+                    "settings_dw": DockWidgetState(
+                        geometry="AdnQywADAAAAAAABAAAAHAAAAoAAAAH7AAAAAAAAAAD//////////wAAAAAAAAAACgAAAAABAAAAHAAAAoAAAAH7",
+                        visible=False,
+                    ),
+                },
+            )
 
     def save(self, file=None):
         if file is None:
@@ -510,31 +614,43 @@ class ProjectSettings(AbstSettings):
         if not os.path.exists(os.path.dirname(file)):
             os.makedirs(os.path.dirname(file))
         try:
-            dump = json.dumps(self.model_dump(), indent=4, cls=CustomEncoder)
+            # set the modified date
+            self.modified = datetime.datetime.now()
+            dump = json.dumps(self.model_dump(), indent=4, cls=SettingsEncoder)
         except Exception as e:
             log.error(f"Error dumping project settings: {e}")
             # propagate the error
             raise e
         with zipfile.ZipFile(file, "w") as zipf:
             zipf.writestr("settings.json", dump)
+        sentry_sdk.add_breadcrumb(
+            category="project_settings", message=f"saved project_settings file: {str(self.uid)} - {self.name}", level="info"
+        )
+
 
 class ApplicationSettings(AbstSettings):
-    """These compose the overall settings of the application. There can be multiple projects within the application settings, though the spplication setting shouldn't change."""
-    version: str = ""
+    """These compose the overall settings of the application. There can be multiple projects within the application settings"""
+
+    version: str = VERSION
+    device_id: str = Field(default_factory=get_device_id)
     file_location: str = user_data_dir("settings.json")
     theme: Literal["dark", "light"] = "dark"
     joke_type: Literal["programming", "dad"] = "programming"
     window_size: Tuple[int, int] = (1280, 720)
     window_position: Tuple[int, int] = (0, 0)
-    projects: List[Tuple[uidT, project_file_locationT]] = [] # list of tuples with "uid" and "file_location"
+    projects: List[
+        Tuple[uidT, project_file_locationT]
+    ] = []  # list of tuples with "uid" and "file_location"
 
     def load(self, file_location):
         with open(file_location, "r") as f:
             project_settings = json.load(f)
         if project_settings is None:
             return
-        
+
         self.version = project_settings.get("version", "")
+        self.device_id = get_device_id()
+        self.file_location = project_settings.get("file_location", "")
         self.theme = project_settings.get("theme", "dark")
         self.joke_type = project_settings.get("joke_type", "programming")
         self.window_size = tuple(project_settings.get("window_size", (1280, 720)))
@@ -554,7 +670,11 @@ class ApplicationSettings(AbstSettings):
         if not os.path.exists(os.path.dirname(file_location)):
             os.makedirs(os.path.dirname(file_location))
         with open(file_location, "w") as f:
-            json.dump(self.model_dump(), f, indent=4, cls=CustomEncoder)
+            json.dump(self.model_dump(), f, indent=4, cls=SettingsEncoder)
+        sentry_sdk.add_breadcrumb(
+            category="application_settings", message=f"saved application_settings file: {file_location}", level="info"
+        )
+        return file_location
 
     def __setattr__(self, name: str, value: Any) -> None:
         log.debug(f"Setting\t{name}\tto\t{value}")
@@ -574,4 +694,3 @@ class ApplicationSettings(AbstSettings):
             "scoring_data": "Data associated with the scoring session",
             "behavior_tracks": "Tracks of behaviors",
         }
-

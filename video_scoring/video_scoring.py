@@ -1,16 +1,9 @@
-__version__ = "0.1.2"
-
 import base64
 import inspect
 import json
 import logging
-from math import e
 import os
-import re
-import sys
-import traceback as tb
-from typing import Any, Dict, Literal, Optional, Union, Tuple
-from numpy import delete
+from typing import Any, Dict, Literal, Optional, Tuple, Union
 
 import qdarktheme
 import requests
@@ -18,31 +11,26 @@ from qtpy import QtCore, QtGui, QtWidgets
 from qtpy.QtCore import QThread, QUrl, Signal
 from qtpy.QtWidgets import QMainWindow
 
+from video_scoring import settings
 from video_scoring.command_stack import CommandStack
-from video_scoring.settings import ProjectSettings, TDTData, ApplicationSettings, Settings
-from video_scoring.widgets import update
+from video_scoring.settings import (DockWidgetState, Layout, ProjectSettings,
+                                    Settings, TDTData)
+from video_scoring.widgets.reporting import FeedbackDialog
+from video_scoring.widgets.analysis import VideoAnalysisDock
 from video_scoring.widgets.loaders import TDTLoader
 from video_scoring.widgets.progress import ProgressBar, ProgressSignals
+from video_scoring.widgets.projects import ProjectsWidget
 from video_scoring.widgets.settings import SettingsDockWidget
 from video_scoring.widgets.timeline import TimelineDockWidget
 from video_scoring.widgets.timestamps import TimeStampsDockwidget
-from video_scoring.widgets.update import UpdateCheck, UpdateDialog, Updater
+from video_scoring.widgets.update import (UpdateCheck, UpdatedDialog,
+                                          UpdateDialog, Updater)
 from video_scoring.widgets.video.frontend import VideoPlayerDockWidget
-from video_scoring.widgets.projects import ProjectsWidget
 
 log = logging.getLogger()
-
-
-def logging_exept_hook(exctype, value, trace):
-    log.critical(f"{str(exctype).upper()}: {value}\n\t{tb.format_exc()}")
-    sys.__excepthook__(exctype, value, trace)
-
-
-sys.excepthook = logging_exept_hook
-
-
 class MainWindow(QMainWindow):
     loaded = Signal()
+    project_loaded = Signal()
 
     def __init__(self, logging_level=logging.INFO):
         super().__init__()
@@ -52,7 +40,6 @@ class MainWindow(QMainWindow):
         self.main_widget = QtWidgets.QWidget()
         self.command_stack = CommandStack()
         self.app_settings = self.settings.app_settings
-        self.app_settings.version = __version__
         self.project_settings = None
         self.menu = None
         self.logging_level = logging_level
@@ -65,12 +52,21 @@ class MainWindow(QMainWindow):
         self.create_menu()
         self.open_projects_window()
         self.init_doc_widgets()
+        self.project_loaded.connect(self._loaders)
+        self.loaded.emit()
 
     def open_projects_window(self):
+        self.save_settings()
+        self.close_doc_widgets()
         self.projects_w = ProjectsWidget(self)
         self.set_central_widget(self.projects_w)
 
-    def set_window_sp(self, size: Union[Tuple[int, int], None]=None, position: Union[Tuple[int, int], None]=None):
+    def set_window_sp(
+        self,
+        size: Union[Tuple[int, int], None] = None,
+        position: Union[Tuple[int, int], None] = None,
+        use_default: bool = False,
+    ):
         """
         Set the window size and position. If no size or position is passed, the window will be centered and take up half the screen. If the size or position is larger than the screen, the window will be centered and take up half the screen.
 
@@ -83,28 +79,25 @@ class MainWindow(QMainWindow):
         """
         desktop = QtWidgets.QApplication.screens()[0].geometry()
         # set the window size and position if passed
+        if use_default:
+            size, position = self.get_default_sp()
         if size is not None:
             self.app_settings.window_size = size
         if position is not None:
             self.app_settings.window_position = position
+        d_size, d_position = self.get_default_sp()
         # ensure that the window size and position are within the visible screen, if not adjust them
         if (
             self.app_settings.window_size[0] > desktop.width()
             or self.app_settings.window_size[1] > desktop.height()
         ):
-            self.app_settings.window_size = (
-                desktop.width() / 2,
-                desktop.height() / 2,
-            )
+            self.app_settings.window_size = d_size
         if (
             self.app_settings.window_position[0] > desktop.width()
             or self.app_settings.window_position[1] > desktop.height()
         ):
-            self.app_settings.window_position = (
-                desktop.width() / 4,
-                desktop.height() / 4,
-            )
-        
+            self.app_settings.window_position = d_position
+
         self.resize(
             int(self.app_settings.window_size[0]),
             int(self.app_settings.window_size[1]),
@@ -114,9 +107,25 @@ class MainWindow(QMainWindow):
             int(self.app_settings.window_position[1]),
         )
 
+    def get_default_sp(self):
+        """
+        Get the default window size and position. The default size is half the size of the primary display and the default position is centered on the primary display.
+
+        Returns
+        -------
+        size : Tuple[int, int]
+            The default window size
+        position : Tuple[int, int]
+            The default window position
+        """
+        desktop = QtWidgets.QApplication.screens()[0].geometry()
+        size = (desktop.width() / 2, desktop.height() / 2)
+        position = (desktop.width() / 4, desktop.height() / 4)
+        return size, position
+
     def load_project(self, project: ProjectSettings):
+        log.info(f"Loading project {project.name}")
         self.save_settings()
-        self.loaded.connect(self._loaders)
         self.project_settings = project
         self.update_status(f"Loading project {project.name}")
         self.set_window_sp()
@@ -126,14 +135,10 @@ class MainWindow(QMainWindow):
         self.projects_w.close()
         self.load_doc_widgets()
         self.init_key_shortcuts()
-        # TODO: abstract this to a function
-        for layout_name in self.project_settings.layouts.keys():
-            if layout_name not in [action.text() for action in self.layouts_menu.actions()]:
-                self.layouts_menu.addAction(layout_name, lambda: self.load_layout(layout_name))
-        for layout_name in [action.text() for action in self.layouts_menu.actions()]:
-            if layout_name not in self.project_settings.layouts.keys() and layout_name != "New Layout" and layout_name != "Delete Layout" and layout_name != "":
-                self.delete_layout(layout_name)
-        self.loaded.emit()
+        self.init_layouts_menu()
+        self.load_last_project_layout()
+
+        self.project_loaded.emit()
 
     def set_central_widget(self, widget: QtWidgets.QWidget = None):
         """Set the central widget of the main window, if no widget is passed, the main_widget is set as the central widget"""
@@ -156,7 +161,9 @@ class MainWindow(QMainWindow):
     def open_project_file(self, file_path: str):
         self.save_settings()
         if not file_path.endswith(".vsap"):
-            self.update_status(f"File is not a valid project file: {file_path}", logging.ERROR)
+            self.update_status(
+                f"File is not a valid project file: {file_path}", logging.ERROR
+            )
             return
         project = ProjectSettings()
         try:
@@ -165,12 +172,11 @@ class MainWindow(QMainWindow):
             self.update_status(e, logging.ERROR)
             return
         self.load_project(project)
-        
 
     def check_for_update(self):
         self.update_checker_thread = QThread()
         # we pass in the version of the current to get around circular imports
-        self.update_check = UpdateCheck(version=__version__)
+        self.update_check = UpdateCheck(version=self.app_settings.version)
         self.update_check.moveToThread(self.update_checker_thread)
         self.update_checker_thread.started.connect(self.update_check.run)
         self.update_check.update_available.connect(self.update_available)
@@ -180,7 +186,7 @@ class MainWindow(QMainWindow):
         )
         self.update_check.no_update.connect(
             lambda: self.update_status(
-                f"You are running the latest version! ({__version__})"
+                f"You are running the latest version! ({self.app_settings.version})"
             )
         )
         self.update_checker_thread.finished.connect(self.update_checker_thread.quit)
@@ -194,29 +200,24 @@ class MainWindow(QMainWindow):
     def no_update_available(self):
         # check the installer folder in the appdata Video Scoring folder
         # if it exists, check if the version is the same as the current version, if so delete it
-        # if it doesn't exist, do nothing
-        installer_dir = os.path.join(
-            os.getenv("LOCALAPPDATA"), "Video Scoring", "installer"
-        )
+        from video_scoring.settings.base_settings import user_data_dir
+
+        installer_dir = os.path.join(os.path.dirname(user_data_dir()), "installer")
         if os.path.exists(installer_dir):
             for file in os.listdir(installer_dir):
-                # the installer name is setup_Video.Scoring_0.0.1.exe
                 if file.endswith(".exe"):
-                    if file.split("_")[-1].strip(".exe") == __version__:
+                    if file.split("_")[-1].strip(".exe") == self.app_settings.version:
                         # delete the file
                         os.remove(os.path.join(installer_dir, file))
-                        # show a message box saying that the we have successfully updated to the latest version
-                        self.update_status(
-                            f"Successfully updated to the latest version {__version__}"
-                        )
-                        msg = QtWidgets.QMessageBox()
-                        msg.setWindowTitle("Update")
-                        msg.setText(
-                            f"Successfully updated to the latest version {__version__}"
-                        )
-                        msg.setIcon(QtWidgets.QMessageBox.Icon.Information)
-                        msg.exec()
-                        return
+                    self.update_status(
+                        f"Successfully updated to the latest version {self.app_settings.version}"
+                    )
+            self.updated_dialog = UpdatedDialog(
+                version=self.app_settings.version, main_win=self, parent=self
+            )
+            self.updated_dialog.exec()
+            os.rmdir(installer_dir)
+            return
 
     def download_update(self):
         self.update_thread = QThread()
@@ -282,7 +283,9 @@ class MainWindow(QMainWindow):
         self.tray_icon.setToolTip("Video Scoring Thing")
         self.tray_icon.show()
 
-    def update_status(self, message, log_level=logging.DEBUG, do_log=True):
+    def update_status(
+        self, message, log_level=logging.DEBUG, do_log=True, display_error=True
+    ):
         if self.status_bar is not None:
             self.status_bar.showMessage(message)
         if not do_log:
@@ -293,6 +296,12 @@ class MainWindow(QMainWindow):
             log.warning(message)
         elif log_level == logging.ERROR:
             log.error(message)
+            if display_error:
+                msg = QtWidgets.QMessageBox()
+                msg.setWindowTitle("Error")
+                msg.setText(f"{message}")
+                msg.setIcon(QtWidgets.QMessageBox.Icon.Critical)
+                msg.exec()
         elif log_level == logging.CRITICAL:
             log.critical(message)
         elif log_level == logging.DEBUG:
@@ -303,6 +312,7 @@ class MainWindow(QMainWindow):
         signals: ProgressSignals,
         title: str = "Progress Bar",
         completed_msg: str = "Completed",
+        popup: bool = False,
     ):
         # clear the status bar
         self.status_bar.clearMessage()
@@ -343,7 +353,7 @@ class MainWindow(QMainWindow):
         self.view_menu = self.menu.addMenu("View")
         if self.view_menu is None:
             raise Exception("Failed to create view menu")
-        self.dock_widgets_menu = self.view_menu.addMenu("Dock Widgets")
+        self.dock_widgets_menu = self.view_menu.addMenu("Panels")
         if self.dock_widgets_menu is None:
             raise Exception("Failed to create dock widgets menu")
         self.theme_menu = self.view_menu.addMenu("Theme")
@@ -352,19 +362,21 @@ class MainWindow(QMainWindow):
         self.theme_menu.addAction("Dark", lambda: self.change_theme("dark"))
         self.theme_menu.addAction("Light", lambda: self.change_theme("light"))
         self.view_menu.addSeparator()
-        self.toggle_screen_action = self.view_menu.addAction("Full Screen", self.toggle_screen)
+        self.toggle_screen_action = self.view_menu.addAction(
+            "Full Screen", self.toggle_screen
+        )
         self.layouts_menu = self.view_menu.addMenu("Layouts")
         if self.layouts_menu is None:
             raise Exception("Failed to create layout menu")
         self.layouts_menu.addAction("New Layout", self.new_layout)
         self.layouts_menu.addAction("Delete Layout", self.delete_layout_dialog)
         self.layouts_menu.addSeparator()
-        
+
         self.help_menu = self.menu.addMenu("Help")
         if self.help_menu is None:
             raise Exception("Failed to create help menu")
-        self.help_menu.addAction("Help Site", self.help)
-        self.report_bug_action = self.help_menu.addAction("Report Bug", self.report_bug)
+        self.help_menu.addAction("Help", self.help)
+        self.feedback_action = self.help_menu.addAction("Feedback", self.feedback)
         self.help_menu.addSeparator()
         self.help_menu.addAction("About", self.about)
 
@@ -377,13 +389,22 @@ class MainWindow(QMainWindow):
                     continue
                 elif action.text() == "File":
                     for sub_action in action.menu().actions():
-                        if sub_action.text() in ["New Project", "Open Project", "Import Project", "Exit"]:
+                        if sub_action.text() in [
+                            "New Project",
+                            "Open Project",
+                            "Import Project",
+                            "Exit",
+                        ]:
                             sub_action.setEnabled(True)
                         else:
                             sub_action.setEnabled(False)
                 elif action.text() == "View":
                     for sub_action in action.menu().actions():
-                        if sub_action.text() in ["Full Screen", "Normal Screen", "Theme"]:
+                        if sub_action.text() in [
+                            "Full Screen",
+                            "Normal Screen",
+                            "Theme",
+                        ]:
                             sub_action.setEnabled(True)
                         else:
                             sub_action.setEnabled(False)
@@ -396,6 +417,53 @@ class MainWindow(QMainWindow):
                 for sub_action in action.menu().actions():
                     sub_action.setEnabled(True)
 
+    def is_pos_visible(self, pos: Tuple[int, int]):
+        """
+        Check if a position is visible on any screen,
+
+        Parameters
+        ----------
+        pos : Tuple[int, int]
+            The position to check
+        """
+        for screen in QtWidgets.QApplication.screens():
+            if screen.geometry().contains(QtCore.QPoint(*pos)):
+                return True
+        return False
+
+    def init_layouts_menu(self):
+        for layout_name in self.project_settings.layouts.keys():
+            if layout_name not in [
+                action.text() for action in self.layouts_menu.actions()
+            ]:
+                self.layouts_menu.addAction(
+                    layout_name, lambda: self.load_layout(layout_name=layout_name)
+                )
+        for layout_name in [action.text() for action in self.layouts_menu.actions()]:
+            if (
+                layout_name not in self.project_settings.layouts.keys()
+                and layout_name != "New Layout"
+                and layout_name != "Delete Layout"
+                and layout_name != ""
+            ):
+                self.delete_layout(layout_name)
+
+    def get_layout(self):
+        """Return the current layout of the application"""
+        # make a dict of the dock widgets and their states
+        dock_widgets = {}
+        for dock_widget in self.findChildren(QtWidgets.QDockWidget):
+            d = DockWidgetState()
+            d.geometry = base64.b64encode(dock_widget.saveGeometry()).decode("utf-8")
+            d.visible = dock_widget.isVisible()
+            dock_widgets[dock_widget.objectName()] = d
+
+        layout = Layout()
+        layout.geometry = base64.b64encode(self.saveGeometry()).decode("utf-8")
+        layout.dock_state = base64.b64encode(self.saveState(1)).decode("utf-8")
+        layout.dock_widgets = dock_widgets
+        return layout
+
     def new_layout(self):
         if self.project_settings is None:
             return
@@ -405,9 +473,11 @@ class MainWindow(QMainWindow):
         )
         if not ok:
             return
-        if layout_name is None or layout_name == "" or layout_name in [
-            name for name in self.project_settings.layouts.keys()
-            ]:
+        if (
+            layout_name is None
+            or layout_name == ""
+            or layout_name in [name for name in self.project_settings.layouts.keys()]
+        ):
             # msg box to error
             msg = QtWidgets.QMessageBox()
             msg.setWindowTitle("Layout Name Error")
@@ -417,42 +487,64 @@ class MainWindow(QMainWindow):
             msg.setIcon(QtWidgets.QMessageBox.Icon.Warning)
             msg.exec()
             return
-        
-        # make a dict of the dock widgets and their states
-        dock_widgets = {}
-        for dock_widget in self.findChildren(QtWidgets.QDockWidget):
-            dock_widgets[dock_widget.objectName()] = {
-                "geometry": dock_widget.saveGeometry().toBase64(),
-                "visible": dock_widget.isVisible(),
-            }
-        self.project_settings.layouts[layout_name] = {
-            "geometry": self.saveGeometry().toBase64(),
-            "dock_state": self.saveState(1).toBase64(),
-            "dock_widgets": dock_widgets,
-        }
-        # add this layout to the layouts menu
-        self.layouts_menu.addAction(layout_name, lambda: self.load_layout(layout_name))
 
-    def load_layout(self, layout_name: str):
-        # load the saved state of the dock widgets
-        if layout_name not in self.project_settings.layouts.keys():
+        self.project_settings.layouts[layout_name] = self.get_layout()
+        # add this layout to the layouts menu
+        self.layouts_menu.addAction(
+            layout_name, lambda: self.load_layout(layout_name=layout_name)
+        )
+
+    def load_layout(self, layout_name: str = None, layout: Layout = None):
+        """
+        Loads a layout from either name or `Layout` object. If both are passed, the Layout object is used.
+
+        Parameters
+        ----------
+        layout_name : str, optional
+            The name of the layout to load, by default None
+        layout : Layout, optional
+            The Layout object to load, by default None
+        """
+        # if both are None, return
+        if layout is None and layout_name is None:
+            return
+        # if layout_name is passed but the layout object, get the object from name
+        if layout is None and layout_name is not None:
+            layout = self.project_settings.layouts.get(layout_name)
+        # if the layout is still None, it doesn't exist
+        if layout is None:
             self.update_status(f"Layout {layout_name} not found", logging.ERROR)
             return
-        # encoded as base64 strings, so we need to convert them back to bytes
-        # self.restoreGeometry(
-        #     base64.b64decode(self.project_settings.layouts[layout_name]["geometry"])
-        # )
-        self.restoreState(
-            base64.b64decode(self.project_settings.layouts[layout_name]["dock_state"]), 1
-        )
-        dock_widgets = self.project_settings.layouts[layout_name]["dock_widgets"]
-        for dock_widget in self.findChildren(QtWidgets.QDockWidget):
-            if dock_widget.objectName() in dock_widgets.keys():
-                # they're stored as hex strings, so we need to convert them back to bytes
-                dock_widget.restoreGeometry(base64.b64decode(dock_widgets[dock_widget.objectName()]["geometry"]))
-                dock_widget.setVisible(bool(dock_widgets[dock_widget.objectName()]["visible"]))
-            else:
-                dock_widget.setVisible(False)
+
+        self.restoreGeometry(base64.b64decode(layout.geometry))
+        # if the main window is outside of the visible screen, move it to the center
+        if not self.is_pos_visible((self.x(), self.y())):
+            self.move(
+                QtWidgets.QApplication.screens()[0].geometry().width() / 2
+                - self.width() / 2,
+                QtWidgets.QApplication.screens()[0].geometry().height() / 2
+                - self.height() / 2,
+            )
+
+        self.restoreState(base64.b64decode(layout.dock_state), 1)
+        layout_dock_widgets = layout.dock_widgets
+        for name, state in layout_dock_widgets.items():
+            # get the dock widget in the main window by name
+            window_dock_widget = self.findChild(QtWidgets.QDockWidget, name)
+            if window_dock_widget is None:
+                continue
+            # restore the dock widget geometry by converting the base64 string to bytes
+            window_dock_widget.restoreGeometry(base64.b64decode(state.geometry))
+            window_dock_widget.setVisible(bool(state.visible))
+
+            # if the dock widget is outside of the visible screen, move it to the center
+            if not self.is_pos_visible(
+                (window_dock_widget.pos().x(), window_dock_widget.pos().y())
+            ):
+                window_dock_widget.move(
+                    self.width() / 2 - window_dock_widget.width() / 2,
+                    self.height() / 2 - window_dock_widget.height() / 2,
+                )
 
     def delete_layout_dialog(self):
         # open a list of layouts to delete
@@ -506,27 +598,22 @@ class MainWindow(QMainWindow):
             self._loaders()
 
     def import_timestamps(self):
-        # file dialog to open csv
-        file_dialog = QtWidgets.QFileDialog()
-        file_dialog.setFileMode(QtWidgets.QFileDialog.FileMode.AnyFile)
-        file_dialog.setNameFilter("CSV (*.csv)")
-        file_dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptMode.AcceptOpen)
-        file_dialog.setDefaultSuffix("csv")
-        file_dialog.setDirectory(self.app_settings.file_location)
-        if file_dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
-            # try save current project
-            self.save_settings()
-            # open project
-            file = file_dialog.selectedFiles()[0]
-            self.project_settings.scoring_data.timestamp_file_location = file
-            self.save_settings()
-            self.timeline_dw.import_ts_file(file)
+        # try save current project
+        self.save_settings()
+        from video_scoring.widgets.timestamps.importer import \
+            TimestampsImporter
+
+        self.ts_importer = TimestampsImporter(self)
+        self.ts_importer.imported.connect(
+            lambda name, data: self.timeline_dw.import_timestamps(name, data)
+        )
+        self.ts_importer.show()
 
     def import_tdt_tank(self):
         # file dialog to select a folder
         file_dialog = QtWidgets.QFileDialog()
         file_dialog.setFileMode(QtWidgets.QFileDialog.FileMode.Directory)
-        file_dialog.setDirectory(self.app_settings.file_location)
+        file_dialog.setDirectory(self.project_settings.file_location)
         file_dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptMode.AcceptOpen)
         if file_dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
             try:
@@ -555,17 +642,19 @@ class MainWindow(QMainWindow):
 
     def load_block(self, loader: TDTLoader):
         """We assume that a tdt_loader object has loaded its block property"""
+        # FIXME: proper loading please :)
         try:
             self.save_settings()
-            self.tdt_data = TDTData(loader.block)
-            # open project
-            file = self.tdt_data.video_path
-            self.project_settings.scoring_data.video_file_location = file
+            self.project_settings.scoring_data.tdt_data = TDTData()
+            self.project_settings.scoring_data.tdt_data.load_from_block(loader.block)
+            self.project_settings.scoring_data.video_file_location = (
+                self.project_settings.scoring_data.tdt_data.video_path
+            )
             self.update_status(
                 f"Imported video at {self.project_settings.scoring_data.video_file_location}"
             )
             self.save_settings()
-            self.video_player_dw.load(str(file))
+            self._loaders()
         except:
             self.update_status(
                 f"Failed to import video at {self.project_settings.scoring_data.video_file_location}"
@@ -593,16 +682,19 @@ class MainWindow(QMainWindow):
         self.timestamps_dw.setObjectName("timestamps_dw")
         self.timestamps_dw.hide()
         self.timeline_dw = TimelineDockWidget(self, self)
+        self.timeline_dw.timeline_view.valueChanged.connect(
+            self.video_player_dw.timelineChanged
+        )
         self.dock_widgets_menu.addAction(self.timeline_dw.toggleViewAction())
         self.timeline_dw.setObjectName("timeline_dw")
         self.timeline_dw.hide()
-        # from video_scoring.widgets.analysis import VideoAnalysisDock
-
         # self.analysis_dw = VideoAnalysisDock(self)
+        # self.analysis_dw.setObjectName("analysis_dw")
         # self.addDockWidget(
         #     QtCore.Qt.DockWidgetArea.LeftDockWidgetArea, self.analysis_dw
         # )
         # self.dock_widgets_menu.addAction(self.analysis_dw.toggleViewAction())
+        # self.analysis_dw.hide()
 
     def load_doc_widgets(self):
         self.addDockWidget(
@@ -621,25 +713,22 @@ class MainWindow(QMainWindow):
         self.set_central_widget(self.video_player_dw)
         self.video_player_dw.show()
         if os.path.exists(str(self.project_settings.scoring_data.video_file_location)):
-            self.video_player_dw.start(self.project_settings.scoring_data.video_file_location)
+            self.video_player_dw.start(
+                self.project_settings.scoring_data.video_file_location
+            )
         else:
             self.video_player_dw.video_widget.stopPlayer()
 
         self.addDockWidget(
             QtCore.Qt.DockWidgetArea.RightDockWidgetArea, self.timestamps_dw
         )
-        self.timestamps_dw.setAllowedAreas(
-            QtCore.Qt.DockWidgetArea.AllDockWidgetAreas
-        )
+        self.timestamps_dw.setAllowedAreas(QtCore.Qt.DockWidgetArea.AllDockWidgetAreas)
         self.timestamps_dw.show()
         self.addDockWidget(
             QtCore.Qt.DockWidgetArea.BottomDockWidgetArea, self.timeline_dw
         )
-        self.timeline_dw.setAllowedAreas(
-            QtCore.Qt.DockWidgetArea.AllDockWidgetAreas
-        )
+        self.timeline_dw.setAllowedAreas(QtCore.Qt.DockWidgetArea.AllDockWidgetAreas)
         self.timeline_dw.show()
-        self.timeline_dw.load()
 
     def close_doc_widgets(self):
         for dock_widget in self.findChildren(QtWidgets.QDockWidget):
@@ -689,12 +778,9 @@ class MainWindow(QMainWindow):
 
     def change_theme(self, theme: Literal["dark", "light"]):
         self.app_settings.theme = theme
-
         qdarktheme.setup_theme(theme)
-        # get the current app
-        app = QtWidgets.QApplication.instance()
         # deep search for all widgets
-        for widget in app.allWidgets():
+        for widget in self.findChildren(QtWidgets.QWidget):
             widget.style().unpolish(widget)
             widget.style().polish(widget)
             widget.update()
@@ -714,11 +800,14 @@ class MainWindow(QMainWindow):
         if self.project_settings is None:
             return
         if os.path.exists(self.project_settings.scoring_data.video_file_location):
-            self.video_player_dw.load(self.project_settings.scoring_data.video_file_location)
+            self.video_player_dw.load(
+                self.project_settings.scoring_data.video_file_location
+            )
         self.timeline_dw.load()
+        # self.analysis_dw.refresh()
 
     def new_project(self):
-        # file dialog to select save location
+        self.save_settings()
         self.close_doc_widgets()
         self.project_settings = None
         self.projects_w = ProjectsWidget(self)
@@ -727,6 +816,7 @@ class MainWindow(QMainWindow):
 
     def open_project(self):
         self.save_settings()
+        self.project_settings = None
         self.close_doc_widgets()
         self.projects_w = ProjectsWidget(self)
         self.set_central_widget(self.projects_w)
@@ -735,29 +825,16 @@ class MainWindow(QMainWindow):
         self.log = logging.getLogger()
         self.update_log_file()
 
-    def migrate_timestamp_data(self):
-        self.timeline_dw.timeline_view.add_behavior_track("OLD TIMESTAMP")
-        for onset, offset in self.project_settings.scoring_data.timestamp_data.items():
-            self.timeline_dw.timeline_view.add_oo_behavior(
-                onset=int(onset),
-                offset=int(offset),
-                track_idx=self.timeline_dw.timeline_view.get_track_idx_from_name(
-                    "OLD TIMESTAMP"
-                ),
-            )
-        # msg box to tell the user that the timestamp data has been moved to the timeline
-        msg = QtWidgets.QMessageBox()
-        msg.setWindowTitle("Migrated Timestamp Data")
-        msg.setText(
-            "Your timestamp data has been migrated to the timeline named `OLD TIMESTAMPS` for compatibility"
-        )
-        msg.setIcon(QtWidgets.QMessageBox.Icon.Information)
-        msg.exec()
-        self.project_settings.scoring_data.timestamp_data = {}
+    def load_last_project_layout(self):
+        if self.project_settings is None:
+            self.set_window_sp()
+        # get the projects last layout
+        if self.project_settings.last_layout is None:
+            self.set_window_sp(use_default=True)
+        else:
+            self.load_layout(layout=self.project_settings.last_layout)
 
     def save_settings(self, file_location=None):
-        if self.centralWidget() is self.projects_w:
-            return
         # set window size and position if the central widget in not the projects widget
         self.app_settings.window_size = (
             self.width(),
@@ -767,24 +844,19 @@ class MainWindow(QMainWindow):
             self.x(),
             self.y(),
         )
+        self.settings.save_app_settings_file()
+        self.update_log_file()
         if self.project_settings is None:
             return
-        self.project_settings.scoring_data.behavior_tracks = self.timeline_dw.save()
-        self.settings.save_settings_file()
-        self.update_log_file()
         try:
-            self.project_settings.save(file_location)
-        except:
-            self.update_status(
-                f"Failed to save project file to {file_location}", logging.ERROR
+            self.project_settings.scoring_data.behavior_tracks = (
+                self.timeline_dw.serialize_tracks()
             )
-            # msg box to error
-            msg = QtWidgets.QMessageBox()
-            msg.setWindowTitle("Save Project Error")
-            msg.setText(f"Failed to save project file to {file_location}")
-            msg.setIcon(QtWidgets.QMessageBox.Icon.Warning)
-            msg.exec()
-            return            
+            self.project_settings.last_layout = self.get_layout()
+            self.project_settings.save(file_location)
+        except Exception as e:
+            self.update_status(e, logging.ERROR)
+            raise Exception(f"Failed to save project file to {file_location}")
 
     def save_settings_as(self):
         # file dialog to select project location
@@ -793,20 +865,24 @@ class MainWindow(QMainWindow):
         file_dialog.setNameFilter("Video Scoring Archive (*.vsap)")
         file_dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptMode.AcceptSave)
         file_dialog.setDefaultSuffix("vsap")
-        file_dialog.setDirectory(self.app_settings.file_location)
+        file_dialog.setDirectory(self.project_settings.file_location)
+        # set the file name to the current project name
+        file_dialog.selectFile(
+            self.project_settings.name + self.project_settings.scorer
+        )
         if file_dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
-            self.app_settings.file_location = file_dialog.selectedFiles()[
-                0
-            ]
+            if file_dialog.selectedFiles()[0] is None:
+                return
+            if not file_dialog.selectedFiles()[0].endswith(".vsap"):
+                file_dialog.selectedFiles()[0] += ".vsap"
+            self.project_settings.file_location = file_dialog.selectedFiles()[0]
             self.update_log_file()
             self.save_settings(file_dialog.selectedFiles()[0])
 
     def update_log_file(self):
         if self.app_settings is None:
             return
-        save_dir = os.path.abspath(
-            os.path.dirname(self.app_settings.file_location)
-        )
+        save_dir = os.path.abspath(os.path.dirname(self.app_settings.file_location))
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         if not os.path.exists(os.path.join(save_dir, "log.txt")):
@@ -842,10 +918,10 @@ class MainWindow(QMainWindow):
         help_url = QUrl("https://github.com/DannyAlas/qt-vid-score/wiki")
         QtGui.QDesktopServices.openUrl(help_url)
 
-    def report_bug(self):
+    def feedback(self):
         # open browser to github issues
-        help_url = QUrl("https://github.com/DannyAlas/qt-vid-score/issues")
-        QtGui.QDesktopServices.openUrl(help_url)
+        self.feedback_dialog = FeedbackDialog(self)
+        self.feedback_dialog.exec()
 
     def about(self):
         class JokeSignals(QtCore.QObject):
@@ -905,7 +981,7 @@ class MainWindow(QMainWindow):
             f"""
         <h1>Video Scoring Thing</h1>
         <div style="color: grey">
-        <p>Version: {__version__}</p>
+        <p>Version: {self.app_settings.version}</p>
         <p>Author: Daniel Alas</p>
         <p>License: MIT</p>
         </div>
@@ -928,7 +1004,7 @@ class MainWindow(QMainWindow):
                 f"""
         <h1>Video Scoring Thing</h1>
         <div style="color: grey">
-        <p>Version: {__version__}</p>
+        <p>Version: {self.app_settings.version}</p>
         <p>Author: Daniel Alas</p>
         <p>License: MIT</p>
         </div>
@@ -953,11 +1029,38 @@ class MainWindow(QMainWindow):
         about_dialog.exec()
 
     def exit(self):
-        self.save_settings()
-        self.close()
+        try:
+            self.save_settings()
+            self.close()
+        except:
+            # TODO: recovery state, if the project file fails to save, we should save the timestamp data to a csv file in either the project folder and/or the appdata folder, then set a flag in the app settings for recovery that will load the timestamp data from the csv file for the project
+            # for now have the user save the timestamp data manually
+            msg = QtWidgets.QMessageBox()
+            msg.setWindowTitle("CRITICAL! Failed to save project file")
+            msg.setWindowIcon(QtGui.QIcon(os.path.join(self.icons_dir, "icon.png")))
+            msg.setIcon(QtWidgets.QMessageBox.Icon.Critical)
+            msg.setText(
+                f"""CRITICAL FAILURE! 
+
+Failed to save project file to {self.app_settings.file_location}                
+
+PLEASE SAVE ALL TIMESTAMP DATA BEFORE EXITING!"""
+            )
+            msg.setIcon(QtWidgets.QMessageBox.Icon.Warning)
+            # add button for saving timestamp data, and for ignoring the error
+            save_button = msg.addButton(
+                "Save Timestamp Data", QtWidgets.QMessageBox.ButtonRole.ActionRole
+            )
+            ignore_button = msg.addButton(
+                "Ignore", QtWidgets.QMessageBox.ButtonRole.ActionRole
+            )
+            # connect the buttons to save the timestamp data or ignore the error
+            save_button.clicked.connect(self.timeline_dw._save_all_to_csv)
+            ignore_button.clicked.connect(lambda: self.close())
+            msg.exec()
 
     def closeEvent(self, event):
-        self.save_settings()
+        self.exit()
         # close all threads
         for thread in self.findChildren(QThread):
             thread.quit()

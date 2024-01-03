@@ -1,19 +1,15 @@
+import logging
 from typing import TYPE_CHECKING
-from PyQt6 import QtGui
-from PyQt6.QtGui import QPaintEvent, QResizeEvent
 
 import numpy as np
+from PyQt6 import QtGui
+from PyQt6.QtGui import QMouseEvent, QPaintEvent, QResizeEvent
 from qtpy import QtCore, QtGui, QtWidgets
 from qtpy.QtCore import QObject, Qt, QThread, Signal, Slot
 from qtpy.QtGui import QImage, QPixmap
-from qtpy.QtWidgets import (
-    QDockWidget,
-    QLabel,
-    QPushButton,
-    QSizePolicy,
-    QVBoxLayout,
-    QWidget,
-)
+from qtpy.QtWidgets import (QDockWidget, QLabel, QPushButton, QSizePolicy,
+                            QVBoxLayout, QWidget)
+
 from video_scoring.widgets.video.backend import VideoPlayer
 
 if TYPE_CHECKING:
@@ -100,11 +96,10 @@ class BouncingAnimation(QtWidgets.QWidget):
 
 # a window with a VideoDisplay label for displaying the video
 class VideoWidget(QWidget):
-    def __init__(self, parent: "VideoPlayerDockWidget"):
+    def __init__(self, main_win: "MainWindow", parent=None):
         super(VideoWidget, self).__init__(parent)
-        self._parent = parent
         self.video_display = VideoDisplay(self)
-        self.static_animation = BouncingAnimation(parent.main_win, self)
+        self.static_animation = BouncingAnimation(main_win, self)
         self.signals = VideoWidgetSignals()
         self.layout = QVBoxLayout()
         self.setLayout(self.layout)
@@ -114,7 +109,7 @@ class VideoWidget(QWidget):
         self.video_display.hide()
         self.layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.layout.setSpacing(0)
-        
+
         self.preserve_aspect_ratio = True
         self.video_file = None
         self.frame_num = 0
@@ -127,13 +122,37 @@ class VideoWidget(QWidget):
     def updatePrevWindow(self, frame: np.ndarray) -> None:
         """Update the display with the new pixmap"""
         if self.play_worker.vc.im_format == "mjpg":
-            image = QImage(frame, frame.shape[1], frame.shape[0], frame.strides[0], QImage.Format.Format_RGB888)
+            image = QImage(
+                frame,
+                frame.shape[1],
+                frame.shape[0],
+                frame.strides[0],
+                QImage.Format.Format_RGB888,
+            )
         elif self.play_worker.vc.im_format == "mp4v":
-            image = QImage(frame, frame.shape[1], frame.shape[0], frame.strides[0], QImage.Format.Format_BGR888)
+            image = QImage(
+                frame,
+                frame.shape[1],
+                frame.shape[0],
+                frame.strides[0],
+                QImage.Format.Format_BGR888,
+            )
         elif self.play_worker.vc.im_format == "avc1":
-            image = QImage(frame, frame.shape[1], frame.shape[0], frame.strides[0], QImage.Format.Format_RGB888)
+            image = QImage(
+                frame,
+                frame.shape[1],
+                frame.shape[0],
+                frame.strides[0],
+                QImage.Format.Format_RGB888,
+            )
         elif self.play_worker.vc.im_format == "h264":
-            image = QImage(frame, frame.shape[1], frame.shape[0], frame.strides[0], QImage.Format.Format_RGB888).rgbSwapped()
+            image = QImage(
+                frame,
+                frame.shape[1],
+                frame.shape[0],
+                frame.strides[0],
+                QImage.Format.Format_RGB888,
+            ).rgbSwapped()
         else:
             image = QImage(
                 frame, frame.shape[1], frame.shape[0], QImage.Format.Format_RGB888
@@ -154,12 +173,13 @@ class VideoWidget(QWidget):
 
     @Slot(np.ndarray, int)
     def receivePrevFrame(self, frame: np.ndarray, frame_num):
-        """receive a frame from the vidReader thread. pad indicates whether the frame is a filler frame"""
+        """receives a frame from the play_worker thread."""
         if frame.shape[0] == 0:
             self.play_worker.pause()
             return
         self.lastFrame = [frame]
         self.updatePrevFrame(frame)  # update the preview window
+        self.frame_num = frame_num
         self.signals.frame.emit(int(frame_num))  # update the timeline
 
     def startPlayer(self, video_file) -> None:
@@ -230,12 +250,20 @@ class VideoWidget(QWidget):
             # if the window is wider than the video
             if window_aspect_ratio > aspect_ratio:
                 # set the height to the height of the window
-                self.video_display.resize(int(self.height() * aspect_ratio), self.height())
-                self.video_display.resize(int(self.height() * aspect_ratio), self.height())
+                self.video_display.resize(
+                    int(self.height() * aspect_ratio), self.height()
+                )
+                self.video_display.resize(
+                    int(self.height() * aspect_ratio), self.height()
+                )
             else:
                 # set the width to the width of the window
-                self.video_display.resize(self.width(), int(self.width() / aspect_ratio))
-                self.video_display.resize(self.width(), int(self.width() / aspect_ratio))
+                self.video_display.resize(
+                    self.width(), int(self.width() / aspect_ratio)
+                )
+                self.video_display.resize(
+                    self.width(), int(self.width() / aspect_ratio)
+                )
 
             # center the video display
             self.video_display.move(
@@ -247,7 +275,6 @@ class VideoWidget(QWidget):
             self.video_display.move(0, 0)
         super(VideoWidget, self).paintEvent(a0)
 
-        
 
 class PlayerControls(QWidget):
     def __init__(self, vpdw: "VideoPlayerDockWidget", parent=None):
@@ -256,9 +283,8 @@ class PlayerControls(QWidget):
         self.layout = QVBoxLayout()
         self.setLayout(self.layout)
         self.frame_label = QLabel("0")
-        self.frame_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        self.frame_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._init_ui()
-        self.vpdw.main_win.loaded.connect(self._init_control_connections)
 
     def _init_ui(self):
 
@@ -269,16 +295,13 @@ class PlayerControls(QWidget):
         )
         self.controls_toolbar.setMovable(False)
         self.controls_toolbar.setFloatable(False)
-        # center the items in the controls toolbar
-        self.controls_toolbar.addWidget(self.frame_label)
-        self.frame_label.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-        )
-       
-        # seek back large frames
+        # self.frame_label.setSizePolicy(
+        #     QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        # )
+        # seek back medium frames
         self.seek_back_medium_frames_action = QtWidgets.QAction(
             self.vpdw.main_win._get_icon("seek-backward-long-button.png"),
-            "Seek back large frames",
+            "Seek back medium frames",
             self,
         )
         self.controls_toolbar.addAction(self.seek_back_medium_frames_action)
@@ -318,7 +341,12 @@ class PlayerControls(QWidget):
         self.layout.addWidget(self.controls_toolbar)
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.setSpacing(1)
-        # center the controls toolbar
+        self.left_spacer = QtWidgets.QWidget()
+        self.left_spacer.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self.controls_toolbar.addWidget(self.left_spacer)
+        self.controls_toolbar.addWidget(self.frame_label)
         self.right_spacer = QtWidgets.QWidget()
         self.right_spacer.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
@@ -330,10 +358,57 @@ class PlayerControls(QWidget):
             "Fill Window",
             self.controls_toolbar,
         )
+
+        self.play_button.triggered.connect(self.vpdw.toggle_play)
+        self.aspect_ratio_button.triggered.connect(self.toggle_aspect_ratio)
+        self.seek_back_medium_frames_action.triggered.connect(
+            self.vpdw.seek_back_medium_frames
+        )
+        # update tooltip for seek back medium frames
+        self.seek_back_medium_frames_action.setToolTip(f"Seek back medium frames")
+        self.seek_back_small_frames_action.triggered.connect(
+            self.vpdw.seek_back_small_frames
+        )
+        self.seek_back_small_frames_action.setToolTip(f"Seek back small frames")
+        self.seek_forward_small_frames_action.triggered.connect(
+            self.vpdw.seek_forward_small_frames
+        )
+        self.seek_forward_small_frames_action.setToolTip(f"Seek forward small frames")
+        self.seek_forward_medium_frames_action.triggered.connect(
+            self.vpdw.seek_forward_medium_frames
+        )
+        self.seek_forward_medium_frames_action.setToolTip(f"Seek forward medium frames")
+        self.set_marker_onset_button = QtWidgets.QAction(
+            self.vpdw.main_win._get_icon("open-bracket.png"),
+            "Set Marker Onset",
+            self.controls_toolbar,
+        )
+        self.set_marker_onset_button.triggered.connect(self.vpdw.set_loop_start)
+        self.controls_toolbar.addAction(self.set_marker_onset_button)
+        self.set_marker_offset_button = QtWidgets.QAction(
+            self.vpdw.main_win._get_icon("close-bracket.png"),
+            "Set Marker Offset",
+            self.controls_toolbar,
+        )
+        self.set_marker_offset_button.triggered.connect(self.vpdw.set_loop_end)
+
+        self.controls_toolbar.addAction(self.set_marker_offset_button)
+
+        # add loop button
+        self.loop_button = QtWidgets.QAction(
+            self.vpdw.main_win._get_icon("loop.png"), "Loop", self.controls_toolbar
+        )
+        self.loop_button.setCheckable(True)
+        self.loop_button.setChecked(False)
+        self.loop_button.triggered.connect(self.vpdw.loop)
+
+        self.controls_toolbar.addAction(self.loop_button)
         self.controls_toolbar.addAction(self.aspect_ratio_button)
 
     def toggle_aspect_ratio(self):
-        self.vpdw.video_widget.preserve_aspect_ratio = not self.vpdw.video_widget.preserve_aspect_ratio
+        self.vpdw.video_widget.preserve_aspect_ratio = (
+            not self.vpdw.video_widget.preserve_aspect_ratio
+        )
         # update the button text
         if self.vpdw.video_widget.preserve_aspect_ratio:
             self.aspect_ratio_button.setIcon(
@@ -341,41 +416,9 @@ class PlayerControls(QWidget):
             )
             self.aspect_ratio_button.setToolTip("Fill Window")
         else:
-            self.aspect_ratio_button.setIcon(
-                self.vpdw.main_win._get_icon("reduce.png")
-            )
+            self.aspect_ratio_button.setIcon(self.vpdw.main_win._get_icon("reduce.png"))
             self.aspect_ratio_button.setToolTip("Fit Window")
-                  
 
-    def _init_control_connections(self):
-        self.play_button.triggered.connect(self.vpdw.toggle_play)
-        self.aspect_ratio_button.triggered.connect(self.toggle_aspect_ratio)
-        self.seek_back_medium_frames_action.triggered.connect(
-            self.vpdw.seek_back_medium_frames
-        )
-        # update tooltip for seek back medium frames
-        self.seek_back_medium_frames_action.setToolTip(
-            f"Seek back large frames ({self.vpdw.main_win.project_settings.playback.seek_video_medium})"
-        )
-        self.seek_back_small_frames_action.triggered.connect(
-            self.vpdw.seek_back_small_frames
-        )
-        self.seek_back_small_frames_action.setToolTip(
-            f"Seek back small frames ({self.vpdw.main_win.project_settings.playback.seek_video_small})"
-        )
-        self.seek_forward_small_frames_action.triggered.connect(
-            self.vpdw.seek_forward_small_frames
-        )
-        self.seek_forward_small_frames_action.setToolTip(
-            f"Seek forward small frames ({self.vpdw.main_win.project_settings.playback.seek_video_small})"
-        )
-        self.seek_forward_medium_frames_action.triggered.connect(
-            self.vpdw.seek_forward_medium_frames
-        )
-        self.seek_forward_medium_frames_action.setToolTip(
-            f"Seek forward medium frames ({self.vpdw.main_win.project_settings.playback.seek_video_medium})"
-        )
-        
     def set_label(self):
         if self.vpdw.video_widget.play_worker is None:
             return
@@ -437,18 +480,78 @@ class VideoPlayerSettingsWidget(QWidget):
         self.tabs.addTab(self.playback_tab, "Playback")
 
 
+class ViewerView(QtWidgets.QGraphicsView):
+    """A QGraphicsView contining the VideoWidget and allows for zooming and panning"""
+
+    def __init__(self, parent: "VideoPlayerDockWidget"):
+        super(ViewerView, self).__init__(parent)
+        self.parent = parent
+        self.setRenderHints(
+            QtGui.QPainter.RenderHint.Antialiasing
+            | QtGui.QPainter.RenderHint.SmoothPixmapTransform
+        )
+        # allow dragging of the scene
+        self.setDragMode(QtWidgets.QGraphicsView.DragMode.ScrollHandDrag)
+        # allow zooming with the mouse wheel
+        self.setTransformationAnchor(
+            QtWidgets.QGraphicsView.ViewportAnchor.AnchorUnderMouse
+        )
+        self.setResizeAnchor(QtWidgets.QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setTransformationAnchor(
+            QtWidgets.QGraphicsView.ViewportAnchor.AnchorViewCenter
+        )
+        self.setMouseTracking(True)
+        self.setInteractive(True)
+
+        self._init_ui()
+
+    def _init_ui(self):
+        self.video_widget = VideoWidget(self.parent.main_win)
+        self.video_widget.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        self.scene = QtWidgets.QGraphicsScene(self)
+        self.scene.addWidget(self.video_widget)
+        self.setScene(self.scene)
+
+    def mousePressEvent(self, event: QMouseEvent | None) -> None:
+        return super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent | None) -> None:
+        return super().mouseReleaseEvent(event)
+
+    # zoom in and out with the mouse wheel
+    def wheelEvent(self, event: QtGui.QWheelEvent) -> None:
+        if event.angleDelta().y() > 0:
+            self.scale(1.1, 1.1)
+        else:
+            self.scale(0.9, 0.9)
+        return super().wheelEvent(event)
+
+    def paintEvent(self, event: QPaintEvent | None) -> None:
+        # draw a border around the video widget
+        painter = QtGui.QPainter(self.viewport())
+        painter.setPen(QtGui.QPen(QtGui.QColor("black"), 2))
+        painter.drawRect(self.video_widget.geometry())
+
+        return super().paintEvent(event)
+
+
 class VideoPlayerDockWidget(QDockWidget):
     def __init__(self, main_win: "MainWindow", parent=None):
         super(VideoPlayerDockWidget, self).__init__(parent)
         self.setWindowTitle("Video Player")
         self.main_win = main_win
         self._init_ui()
-        self.main_win.loaded.connect(self._init_connections)
+        self.main_win.project_loaded.connect(self._init_connections)
         self.setFloating(False)
-        self.setFeatures(
-            QDockWidget.DockWidgetFeature.DockWidgetClosable
-        )
-        
+        self.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable)
+
+    def setWindowTitle(self, title: str) -> None:
+        self.setToolTip(title)  # full title for tooltip
+        if len(title) > 25:
+            title = title[:25] + "..."
+        super(VideoPlayerDockWidget, self).setWindowTitle(title)
 
     def _init_ui(self):
         self.tool_bar = QtWidgets.QToolBar()
@@ -470,9 +573,9 @@ class VideoPlayerDockWidget(QDockWidget):
         self.info_button.triggered.connect(self.open_info)
         self.tool_bar.addAction(self.info_button)
 
-        self.video_widget = VideoWidget(self)
+        # self.viewer_view = ViewerView(self)
         # make the video widget the central widget
-        self.setWidget(self.video_widget)
+        self.video_widget = VideoWidget(self.main_win)
         self.video_widget.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
@@ -497,17 +600,25 @@ class VideoPlayerDockWidget(QDockWidget):
     def _init_connections(self):
         self.video_widget.signals.frame.connect(self.update_timeline)
         self.timeline = self.main_win.timeline_dw
-        self.timeline.timeline_view.valueChanged.connect(self.timelineChanged)
+        self.timeline.valueChanged.connect(self.timelineChanged)
         if self.started:
             self.timeline.set_length(self.video_widget.play_worker.vc.len)
             self.fps_label.setText(f"FPS: {self.video_widget.play_worker.vc.fps}")
+
+        self.timeline.loaded.connect(
+            lambda: self.timeline.timeline_view.marker.signals.updated.connect(
+                self.update_loop
+            )
+        )
+        self.player_controls.loop_button.toggled.connect(self.loop)
+        self.update_loop()
 
     def open_info(self):
         self.info_widget = VideoPlayerSettingsWidget(self.main_win, self.video_widget)
         self.info_widget.init_tabs()
         self.info_widget.show()
 
-    def start(self, video_file):
+    def start(self, video_file: str):
         if video_file is None:
             self.video_widget.stopPlayer()
         try:
@@ -533,10 +644,53 @@ class VideoPlayerDockWidget(QDockWidget):
                 self.main_win._get_icon("media_play.png")
             )
 
+    def update_loop(self):
+        if self.video_widget.play_worker is None:
+            return
+        # if the marker is not visible, set the disable the loop button in the toolbar
+        if not self.timeline.timeline_view.marker.isVisible():
+            self.player_controls.loop_button.setIcon(
+                self.main_win._get_icon("loop-disabled.png")
+            )
+            self.player_controls.loop_button.setEnabled(False)
+            self.player_controls.loop_button.setChecked(False)
+            self.video_widget.play_worker.loop = False
+            return
+        # if the marker is visible, enable the loop button in the toolbar
+        self.player_controls.loop_button.setEnabled(True)
+        self.player_controls.loop_button.setIcon(self.main_win._get_icon("loop.png"))
+        self.video_widget.play_worker.loop_start = (
+            self.main_win.timeline_dw.timeline_view.marker.onset
+        )
+        self.video_widget.play_worker.loop_end = (
+            self.main_win.timeline_dw.timeline_view.marker.offset
+        )
+
+    def set_loop_start(self):
+        self.timeline.set_marker_in()
+        self.video_widget.play_worker.loop_start = (
+            self.main_win.timeline_dw.timeline_view.marker.onset
+        )
+
+    def set_loop_end(self):
+        self.timeline.set_marker_out()
+        self.video_widget.play_worker.loop_end = (
+            self.main_win.timeline_dw.timeline_view.marker.offset
+        )
+
+    def loop(self):
+        if self.video_widget.play_worker is None:
+            return
+        self.video_widget.play_worker.loop = (
+            self.player_controls.loop_button.isChecked()
+        )
+        self.update_loop()
+
     def seek(self, frame_num: int):
         if self.video_widget.play_worker is None:
             return
         self.video_widget.play_worker.seek(frame_num)
+        self.timeline.timeline_view.scroll_to_playhead()
 
     def seek_forward_small_frames(self):
         if self.video_widget.play_worker is None:
@@ -589,6 +743,7 @@ class VideoPlayerDockWidget(QDockWidget):
     def seek_to_first_frame(self):
         if self.video_widget.play_worker is None:
             return
+        self.main_win.update_status("Seeking to first frame", logging.ERROR)
         self.seek(0)
 
     def seek_to_last_frame(self):
@@ -618,6 +773,7 @@ class VideoPlayerDockWidget(QDockWidget):
         self.fps_label.setText(f"FPS: {self.video_widget.play_worker.vc.fps}")
         self.toggle_play()
 
+    @Slot(int)
     def timelineChanged(self, value):
         # if the video is not playing, seek to the new position
         if self.video_widget.play_worker is None:
@@ -625,19 +781,12 @@ class VideoPlayerDockWidget(QDockWidget):
         if self.video_widget.play_worker.vc.frame_num != value:
             self.seek(value)
 
-    def save_timestamp(self):
-        if self.video_widget.play_worker is None:
-            return
-        # get the current frame number
-        frame_num = self.video_widget.play_worker.vc.frame_num
-        self.main_win.timeline_dw.add_oo_behavior(onset=frame_num)
-        self.main_win.timestamps_dw.table_widget.update()
-
     def update_timeline(self, frame_num):
         self.player_controls.frame_label.setNum(frame_num)
 
         if not self.timeline.timeline_view.playhead.triangle.pressed:
-            self.timeline.timeline_view.setValue(frame_num)
+            self.timeline.timeline_view.move_playhead_to_frame(frame_num)
+            self.timeline.timeline_view.scroll_to_playhead()
 
     def get_frame_num(self):
         return self.video_widget.play_worker.vc.frame_num
@@ -646,7 +795,6 @@ class VideoPlayerDockWidget(QDockWidget):
         if video_file is None:
             return
         try:
-            self._init_connections()
             self.video_widget.startPlayer(video_file)
             self.setWindowTitle(f"Video Player - {video_file.split('/')[-1]}")
             self.started = True

@@ -8,17 +8,9 @@ import numpy as np
 from qtpy import QtGui
 from qtpy.QtCore import QMutex, QObject, Qt, QThread, QTimer, Signal, Slot
 from qtpy.QtGui import QAction, QIcon, QImage, QPixmap
-from qtpy.QtWidgets import (
-    QApplication,
-    QLabel,
-    QMainWindow,
-    QMenuBar,
-    QPushButton,
-    QSizePolicy,
-    QSlider,
-    QVBoxLayout,
-    QWidget,
-)
+from qtpy.QtWidgets import (QApplication, QLabel, QMainWindow, QMenuBar,
+                            QPushButton, QSizePolicy, QSlider, QVBoxLayout,
+                            QWidget)
 
 if TYPE_CHECKING:
     import numpy as np
@@ -114,7 +106,12 @@ class VideoCapture(QMutex):
         try:
             self.vc = self.video.cap
             self.vc.set(cv2.CAP_PROP_BUFFERSIZE, 5000)
-            self.im_format = "".join([chr((int(self.vc.get(cv2.CAP_PROP_FOURCC)) >> 8 * i) & 0xFF) for i in range(4)])
+            self.im_format = "".join(
+                [
+                    chr((int(self.vc.get(cv2.CAP_PROP_FOURCC)) >> 8 * i) & 0xFF)
+                    for i in range(4)
+                ]
+            )
             self.updateFPS(self.getFrameRate())
 
         except Exception as e:
@@ -189,8 +186,11 @@ class VideoPlayer(QObject):
         super(VideoPlayer, self).__init__()
         self.signals = VideoPlayerSignals()
         self.play_timer = None
-        self.paused = False
+        self.paused = True
         self.started = False
+        self.loop = False
+        self.loop_start = 0
+        self.loop_end = 0
         if video_file is not None:
             self.startPlayer(video_file)
 
@@ -223,9 +223,13 @@ class VideoPlayer(QObject):
     def get_play_frame(self):
         if not self.started:
             return
-        self.vc.lock()
-        self.signals.frame.emit(self.vc.get_frame(), self.vc.frame_num)
-        self.vc.unlock()
+        # if we're looping and we're at the end of the loop, seek to the beginning
+        if self.loop and self.vc.frame_num >= self.loop_end:
+            self.seek(self.loop_start)
+        else:
+            self.vc.lock()
+            self.signals.frame.emit(self.vc.get_frame(), self.vc.frame_num)
+            self.vc.unlock()
 
     def seek(self, frame_num: int):
         """Seek to a frame number"""

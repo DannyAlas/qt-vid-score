@@ -1,12 +1,9 @@
+import re
 from typing import TYPE_CHECKING, Literal, Optional
 
 from qtpy.QtGui import QBrush, QColor
-from qtpy.QtWidgets import (
-    QGraphicsItem,
-    QGraphicsRectItem,
-    QGraphicsSceneMouseEvent,
-    QGraphicsTextItem,
-)
+from qtpy.QtWidgets import (QGraphicsItem, QGraphicsRectItem,
+                            QGraphicsSceneMouseEvent, QGraphicsTextItem)
 
 from video_scoring.widgets.timeline.behavior_items import OnsetOffsetItem
 
@@ -30,8 +27,8 @@ class BehaviorTrack(QGraphicsRectItem):
         self.y_position = y_position
         self.track_height = track_height
         self.behavior_type = behavior_type
-        # TODO: Maybe radomize this across tracks from a palette? 
-        self.item_color = "#6aa1f5" # default color
+        # TODO: Maybe radomize this across tracks from a palette?
+        self.item_color = "#6aa1f5"  # default color
         self.setToolTip(name)
         self.setBrush(QBrush(QColor("#545454")))
 
@@ -40,17 +37,25 @@ class BehaviorTrack(QGraphicsRectItem):
 
         self.curr_behavior_item: Optional[OnsetOffsetItem] = None
 
-    def add_behavior(self, onset):
+    def add_behavior(self, onset, unsure=False):
         # add a new behavior item
-        # if offset is none we're we will be changing the offset based on the playheads position
-        self.curr_behavior_item = OnsetOffsetItem(onset, onset + 1, self.parent, self)
+        # if offset is none we will be changing the offset based on the playheads position
+        self.curr_behavior_item = OnsetOffsetItem(
+            onset, onset + 1, unsure, self.parent, self
+        )
         self.behavior_items[onset] = self.curr_behavior_item
         return self.curr_behavior_item
 
     def remove_behavior(self, item: "OnsetOffsetItem"):
         # remove the given behavior item
-        self.behavior_items.pop(item.onset)
+        item = self.behavior_items.pop(item.onset)
         self.parent.scene().removeItem(item)
+        return item
+
+    def set_unsure(self, item: "OnsetOffsetItem", unsure: bool):
+        item.set_unsure(unsure)
+        self.parent.scene().update()
+        self.parent.main_window.timestamps_dw.refresh()
 
     def check_for_overlap(self, onset, offset=None):
         # check if the provided item overlaps with any existing items

@@ -193,7 +193,7 @@ class TsWidget(QtWidgets.QWidget):
         self.layout = QtWidgets.QVBoxLayout()
 
         # Table to display timestamps
-        self.table = customTableWidget(0, 4)
+        self.table = customTableWidget(0, 2)
         self.table.setHorizontalHeaderLabels(["Onset", "Offset"])
         self.table.horizontalHeader().setSectionResizeMode(
             QtWidgets.QHeaderView.ResizeMode.Stretch
@@ -254,6 +254,11 @@ class TsWidget(QtWidgets.QWidget):
             # add the offset to the table
             offset_item = QtWidgets.QTableWidgetItem(str(item.offset))
             self.table.setItem(self.table.rowCount() - 1, 1, offset_item)
+            # add data to the onset for it unsure
+            onset_item.setData(QtCore.Qt.ItemDataRole.UserRole, item.unsure)
+            if item.unsure:
+                onset_item.setBackground(QtGui.QColor("#cc8e47"))
+                offset_item.setBackground(QtGui.QColor("#cc8e47"))
             # scroll to the item if it has changed from the previous update
             if len(tb_onsets) == 0 or len(tb_offsets) == 0:
                 self.table.scrollToItem(onset_item)
@@ -317,6 +322,10 @@ class TimeStampsDockwidget(QtWidgets.QDockWidget):
 
     def update_tracks(self):
         self.behavior_track_combo.clear()
+        if len(self.main_win.timeline_dw.timeline_view.behavior_tracks) == 0:
+            self.table_widget.table.clearContents()
+            self.table_widget.table.setRowCount(0)
+            return
         for track in self.main_win.timeline_dw.timeline_view.behavior_tracks:
             self.behavior_track_combo.addItem(track.name)
 
@@ -339,46 +348,18 @@ class TimeStampsDockwidget(QtWidgets.QDockWidget):
         if file_path == "":
             return
         # save the file path
-        self.main_win.project_settings.timestamp_file_location = file_path
+        self.main_win.project_settings.scoring_data.timestamp_file_location = file_path
         # save the table
         with open(file_path, "w") as f:
             # write the header
-            f.write("Onset,Offset\n")
+            f.write("Onset,Offset,Unsure\n")
             # write the data
             for row in range(self.table_widget.table.rowCount()):
                 onset = self.table_widget.table.item(row, 0).text()
                 offset = self.table_widget.table.item(row, 1).text()
-                f.write(f"{onset},{offset}\n")
+                unsure = self.table_widget.table.item(row, 0).data(
+                    QtCore.Qt.ItemDataRole.UserRole
+                )
+                f.write(f"{onset},{offset},{unsure}\n")
         # show a message box
         self.main_win.statusBar().showMessage(f"Saved timestamps to {file_path}")
-
-    def load_from_csv(self, file_path):
-        """Load timestamps from a csv file"""
-        # load the file
-        with open(file_path, "r") as f:
-            # skip the header
-            f.readline()
-            # read the data
-            data = f.readlines()
-        # if the first line contains "Onset,Offset", skip it
-        if data[0].strip() == "Onset,Offset":
-            data = data[1:]
-        # clear the table
-        self.table_widget.table.clearContents()
-        self.table_widget.table.setRowCount(0)
-        # add the data to the table
-        for line in data:
-            onset, offset = line.strip().split(",")
-            self.table_widget.table.insertRow(self.table_widget.table.rowCount())
-            onset_item = QtWidgets.QTableWidgetItem(onset)
-            self.table_widget.table.setItem(
-                self.table_widget.table.rowCount() - 1, 0, onset_item
-            )
-            offset_item = QtWidgets.QTableWidgetItem(offset)
-            self.table_widget.table.setItem(
-                self.table_widget.table.rowCount() - 1, 1, offset_item
-            )
-        # save the file path
-        self.main_win.project_settings.timestamp_file_location = file_path
-        # show a message box
-        self.main_win.statusBar().showMessage(f"Loaded timestamps from {file_path}")
