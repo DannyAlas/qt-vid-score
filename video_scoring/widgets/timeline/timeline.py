@@ -647,6 +647,7 @@ class TimelineView(QGraphicsView):
             if mouse_pos >= view_pos and mouse_pos <= view_pos + view_width:
                 # if we're holding shift, snap to the nearest behavior onset or offset if it's within 20 pixels
                 snapped_x = round(new_x / self.frame_width) * self.frame_width
+                frame = self.get_frame_of_x_pos(snapped_x)
                 if event.modifiers() == Qt.KeyboardModifier.ShiftModifier:
                     # get the nearest behavior onset
                     for track, onset_list in self.item_keys_to_render.items():
@@ -669,7 +670,7 @@ class TimelineView(QGraphicsView):
                                 break
 
                 self.playhead.triangle.pressed = True
-                self.move_playhead_to_frame(self.get_frame_of_x_pos(snapped_x))
+                self.move_playhead_to_frame(frame)
                 self.playhead.triangle.pressed = False
 
         self.scene().update()
