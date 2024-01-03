@@ -64,7 +64,7 @@ class DraggableTriangle(QGraphicsPolygonItem):
         super().mouseReleaseEvent(event)
 
 
-class CustomPlayhead(QGraphicsLineItem):
+class Playhead(QGraphicsLineItem):
     def __init__(self, x, y, height, frame_width, tl: "TimelineView"):
         super().__init__(0, y, 0, y + height + 10)
         self.frame_width = frame_width

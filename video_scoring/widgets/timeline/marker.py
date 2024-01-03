@@ -1,3 +1,4 @@
+from cProfile import label
 from typing import TYPE_CHECKING
 
 from qtpy.QtCore import QObject, QPointF, QRectF, Qt, QTimer, Signal
@@ -6,7 +7,7 @@ from qtpy.QtWidgets import (QGraphicsItem, QGraphicsRectItem,
                             QGraphicsSceneHoverEvent, QGraphicsSceneMouseEvent,
                             QMenu, QStyleOptionGraphicsItem, QWidget)
 
-from video_scoring.widgets.timeline.commands import OnsetOffsetMoveCommand
+from video_scoring.widgets.timeline.commands import MarkerMoveCommand
 
 if TYPE_CHECKING:
     from qtpy.QtCore import QPointF
@@ -16,35 +17,38 @@ if TYPE_CHECKING:
     from video_scoring.widgets.timeline.track import BehaviorTrack
 
 
-class OnsetOffsetItemSignals(QObject):
-    unhighlight_sig = Signal()
-
-
-class OnsetOffsetItem(QGraphicsRectItem):
+class MarkerSignals(QObject):
     """
-    This will be a behavior item that has onset and offset times
-    It's edges will be draggable to change the onset and offset times
-    Grabbing the middle will move the whole thing
+    A class to hold signals for the marker item
+    """
+
+    updated = Signal()
+
+
+class MarkerItem(QGraphicsRectItem):
+    """
+    Represents a marker on the timeline that has an onset and offset
     """
 
     def __init__(
         self,
         onset: int,
         offset: int,
-        unsure: bool,
         view: "TimelineView",
-        parent: "BehaviorTrack" = None,
+        parent: "TimelineView" = None,
     ):
-        super().__init__(parent)
+        super().__init__()
         self.parent = parent
         self.view = view
+        self.main_win = self.view.main_window
+        self.open_bracket_icon = self.main_win._get_icon("open-bracket.png")
+        self.close_bracket_icon = self.main_win._get_icon("close-bracket.png")
+        self.signals = MarkerSignals()
 
         # DO NOT MODIFY THESE DIRECTLY
         self._onset: int = onset
         self._offset: int = offset
-        self.unsure: bool = unsure
 
-        self.signals = OnsetOffsetItemSignals()
         self.pressed = False
         self.last_mouse_pos = None
         self.left_edge_grabbed = False
@@ -55,18 +59,15 @@ class OnsetOffsetItem(QGraphicsRectItem):
         self.edge_grab_boundary = 8
         self.extend_edge_grab_boundary = 8
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, False)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
-        self.setCacheMode(QGraphicsItem.CacheMode.DeviceCoordinateCache)
+        self.setCacheMode(QGraphicsItem.CacheMode.NoCache)
         self.setAcceptHoverEvents(True)
-        self.signals.unhighlight_sig.connect(self.unhighlight)
+        self.setOpacity(0.1)
         # set geometry
-        self.base_color = QColor(self.parent.item_color)
+        self.base_color = QColor("#6b86b3")
         self.setBrush(QBrush(self.base_color))
-        self.highlight_color = self.base_color.lighter(110)
-        self.setToolTip(
-            f"{self.onset} - {self.offset} - {['Sure', 'Unsure'][self.unsure]}"
-        )
+        self.highlight_color = self.base_color.lighter(120)
 
     # TODO: is there a reason we don't use the built in setters/getters? Fix this if not
     @property
@@ -93,22 +94,19 @@ class OnsetOffsetItem(QGraphicsRectItem):
             The mouse event that triggered the context menu
         """
         menu = QMenu()
-        if self.unsure:
-            unsure_action = menu.addAction("Set Sure")
-            unsure_action.triggered.connect(lambda: self.parent.set_unsure(self, False))
-            unsure_action.triggered.connect(menu.close)
-        else:
-            unsure_action = menu.addAction("Set Unsure")
-            unsure_action.triggered.connect(lambda: self.parent.set_unsure(self, True))
-            unsure_action.triggered.connect(menu.close)
-        delete_action = menu.addAction("Delete")
-        delete_action.triggered.connect(lambda: self.parent.remove_behavior(self))
+        delete_action = menu.addAction("Hide Selection")
+        delete_action.triggered.connect(self.toggle_visibility)
         return menu
 
+    def get_selection(self) -> tuple[int, int]:
+        """Convenience method to get the onset and offset of the marker"""
+        return self.onset, self.offset
+
+    def toggle_visibility(self):
+        self.setVisible(not self.isVisible())
+
     def update_tooltip(self):
-        self.setToolTip(
-            f"{self.onset} - {self.offset} - {['Sure', 'Unsure'][self.unsure]}"
-        )
+        self.setToolTip(f"Marker In: {self.onset} - Out: {self.offset}")
 
     def _drag_left_edge(self, event: QGraphicsSceneMouseEvent) -> None:
         scene_x: QPointF = self.mapToScene(
@@ -140,8 +138,7 @@ class OnsetOffsetItem(QGraphicsRectItem):
             self.mapToScene(self.rect().left(), 0).x()
         )
 
-        # if we overlap with another item, revert the change
-        if self.parent.overlap_with_item_check(self, onset=n_onset):
+        if not self.check_validity(onset=n_onset):
             self.setRect(
                 old_x_local, self.rect().top(), old_width, self.rect().height()
             )
@@ -181,7 +178,7 @@ class OnsetOffsetItem(QGraphicsRectItem):
             int(self.mapToScene(QPointF(event.pos())).x() / self.view.frame_width) + 1
         )
 
-        if self.parent.overlap_with_item_check(self, offset=n_offset):
+        if not self.check_validity(offset=n_offset):
             self.setRect(
                 self.rect().left(), self.rect().top(), old_width, self.rect().height()
             )
@@ -207,11 +204,39 @@ class OnsetOffsetItem(QGraphicsRectItem):
             self.mapToScene(self.rect().right(), 0).x()
         )
 
-        if self.parent.overlap_with_item_check(self, onset=n_onset, offset=n_offset):
+        if not self.check_validity(onset=n_onset, offset=n_offset):
             self.setPos(old_x, self.pos().y())
         else:
             self.set_onset(new_onset=n_onset)
             self.set_offset(new_offset=n_offset)
+
+    def check_validity(self, onset: int = None, offset: int = None) -> bool:
+        """
+        Checks if the onset and offset are valid
+
+        Parameters
+        ----------
+        onset : int
+            The onset frame
+        offset : int
+            The offset frame
+
+        Returns
+        -------
+        bool
+            True if the onset and offset are valid, False otherwise
+        """
+        if onset is None:
+            onset = self.onset
+        if offset is None:
+            offset = self.offset
+        if onset < 0:
+            return False
+        if offset > self.view.num_frames:
+            return False
+        if onset >= offset:
+            return False
+        return True
 
     def set_onset(self, new_onset: int):
         """
@@ -222,10 +247,12 @@ class OnsetOffsetItem(QGraphicsRectItem):
         new_onset : int
             The new onset value
         """
-        self.parent.update_behavior_onset(self, new_onset)
+        if not self.check_validity(onset=new_onset, offset=self.offset):
+            if self.check_validity(onset=new_onset, offset=self.view.num_frames):
+                self.set_offset(self.view.num_frames)
         self._onset = new_onset
-        self.view.main_window.timestamps_dw.refresh()
         self.update_tooltip()
+        self.view.scene().update()
 
     def set_offset(self, new_offset: int):
         """
@@ -237,8 +264,8 @@ class OnsetOffsetItem(QGraphicsRectItem):
             The new offset value
         """
         self._offset = new_offset
-        self.view.main_window.timestamps_dw.update()
         self.update_tooltip()
+        self.view.scene().update()
 
     def set_onset_offset(self, new_onset: int, new_offset: int):
         """
@@ -253,18 +280,6 @@ class OnsetOffsetItem(QGraphicsRectItem):
         """
         self.set_onset(new_onset)
         self.set_offset(new_offset)
-
-    def set_unsure(self, unsure: bool):
-        """
-        Set the unsure status of the behavior item.
-
-        Parameters
-        ----------
-        unsure : bool
-            The new unsure value
-        """
-        self.unsure = unsure
-        self.update_tooltip()
 
     def highlight(self):
         self.setBrush(QBrush(self.highlight_color))
@@ -282,12 +297,16 @@ class OnsetOffsetItem(QGraphicsRectItem):
 
     def mousePressEvent(self, event):
         # Handle mouse press events
-        self.pressed = True
+        if self.hover_left_edge:
+            self.pressed = True
+        # if we're in the right edge grab boundary
+        elif self.hover_right_edge:
+            self.pressed = True
         self.setSelected(True)
         self.last_mouse_pos = event.pos()
         cur_onset = self.onset
         cur_offset = self.offset
-        self.cur_move_command = OnsetOffsetMoveCommand(
+        self.cur_move_command = MarkerMoveCommand(
             cur_onset, cur_offset, cur_onset, cur_offset, self
         )
         # if its we're smaller than 10 pixels, determine which edge we're closest to by dividing the width by 2
@@ -297,13 +316,11 @@ class OnsetOffsetItem(QGraphicsRectItem):
                 self.hover_left_edge = True
                 self.right_edge_grabbed = False
                 self.hover_right_edge = False
-                self.update()
             else:
                 self.left_edge_grabbed = False
                 self.hover_left_edge = False
                 self.right_edge_grabbed = True
                 self.hover_right_edge = True
-                self.update()
         elif (
             event.pos().x() <= self.edge_grab_boundary + self.extend_edge_grab_boundary
             and not event.pos().x()
@@ -315,7 +332,6 @@ class OnsetOffsetItem(QGraphicsRectItem):
             self.hover_left_edge = True
             self.right_edge_grabbed = False
             self.hover_right_edge = False
-            self.update()
         elif (
             event.pos().x()
             >= self.rect().width()
@@ -328,13 +344,12 @@ class OnsetOffsetItem(QGraphicsRectItem):
             self.hover_left_edge = False
             self.right_edge_grabbed = True
             self.hover_right_edge = True
-            self.update()
         else:
             self.left_edge_grabbed = False
             self.hover_left_edge = False
             self.right_edge_grabbed = False
             self.hover_right_edge = False
-            self.update()
+        self.update()
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
@@ -345,9 +360,8 @@ class OnsetOffsetItem(QGraphicsRectItem):
         ):
             self.cur_move_command.redo_onset = self.onset
             self.cur_move_command.redo_offset = self.offset
-            self.parent.parent.parent.main_win.command_stack.add_command(
-                self.cur_move_command
-            )
+            self.signals.updated.emit()
+            self.view.parent.main_win.command_stack.add_command(self.cur_move_command)
         super().mouseReleaseEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -358,25 +372,23 @@ class OnsetOffsetItem(QGraphicsRectItem):
                 self._drag_left_edge(event)
             elif self.right_edge_grabbed:
                 self._drag_right_edge(event)
-            else:
-                self._drag_item(event)
 
         self.setZValue(10)
         self.scene().update()
 
     def hoverEnterEvent(self, event):
         # lighten the color fill of the rectangle
-        self.highlight()
+        # self.highlight()
         self.hovered = True
         super().hoverEnterEvent(event)
 
     def hoverLeaveEvent(self, event):
-        self.unhighlight()
+        # self.unhighlight()
         self.setCursor(Qt.CursorShape.ArrowCursor)
-        self.hovered = False
+        # self.hovered = False
         self.hover_left_edge = False
         self.hover_right_edge = False
-        self.setZValue(10)
+        # self.setZValue(10)
         super().hoverLeaveEvent(event)
 
     def hoverMoveEvent(self, event: QGraphicsSceneHoverEvent | None) -> None:
@@ -431,45 +443,45 @@ class OnsetOffsetItem(QGraphicsRectItem):
     ) -> None:
         # make a light gray pen with rounded edges
         super().paint(painter, option, widget)
-        edge_color = self.highlight_color.lighter(150)
-        if self.hovered:
-            pen = QPen(Qt.GlobalColor.lightGray, 1)
-            painter.setPen(pen)
-            # add a border around the rectangle with no fill
-            border = QRectF(
-                self.rect().left(),
-                self.rect().top(),
-                self.rect().width(),
-                self.rect().height(),
-            )
-            painter.drawRect(border)
+        left_edge_color = QColor("#0059ff")
+        right_edge_color = QColor("#0059ff")
         if self.hover_left_edge:
-
-            pen = QPen(edge_color, 3)
-            painter.setPen(pen)
-            # plce the line on the left edge but offset by 1 pixel so that it doesn't get cut off
-            painter.drawLine(
-                int(self.rect().left()) + 1,
-                2,
-                int(self.rect().left()) - 1,
-                int(self.rect().height()) - 2,
-            )
+            left_edge_color = QColor("#ff0000")
         elif self.hover_right_edge:
-            pen = QPen(edge_color, 3)
-            painter.setPen(pen)
-            painter.drawLine(
-                int(self.rect().width()),
-                2,
-                int(self.rect().width()),
-                int(self.rect().height()) - 2,
-            )
-        if self.unsure:
-            pen = QPen(Qt.GlobalColor.yellow, 3)
-            painter.setPen(pen)
-            painter.drawRect(self.rect())
+            right_edge_color = QColor("#ff0000")
+        # draw open bracket icon
+        painter.setOpacity(0.4)
+        pen = QPen(left_edge_color, 3)
+        painter.setPen(pen)
+        painter.drawLine(
+            int(self.rect().left()) + 1,
+            2,
+            int(self.rect().left()) - 1,
+            int(self.rect().height() - 2),
+        )
+
+        pen = QPen(right_edge_color, 3)
+        painter.setPen(pen)
+        painter.drawLine(
+            int(self.rect().width()),
+            2,
+            int(self.rect().width()),
+            int(self.rect().height() - 2),
+        )
+        # draw a rectangle with an opacity of 0.1
+        painter.setOpacity(0.1)
+        painter.setBrush(QBrush(QColor("#ffffff")))
+        painter.setPen(Qt.NoPen)
+        painter.drawRect(
+            QRectF(0, 0, self.rect().width(), self.view.height() - 1),
+        )
 
     def save(self):
         return {
             "onset": self.onset,
             "offset": self.offset,
         }
+
+    def setVisible(self, visible: bool):
+        super().setVisible(visible)
+        self.signals.updated.emit()

@@ -28,9 +28,11 @@ class ProgressBar(QWidget):
         title: str,
         completed_msg: str,
         main_window: "MainWindow",
+        popup: bool = False,
     ):
         super().__init__()
         self.pbar = QProgressBar(self)
+        self.popup = popup
         self.main_win = main_window
         self.completed_msg = completed_msg
         self.layout = QGridLayout()
@@ -63,17 +65,23 @@ class ProgressBar(QWidget):
         ][0]
         self.layout.addWidget(label, 0, 1)
         # add the progress bar to the status bar
-        self.main_win.statusBar().clearMessage()
-        self.main_win.statusBar().addWidget(self)
+        if not self.popup:
+            self.main_win.statusBar().clearMessage()
+            self.main_win.statusBar().addWidget(self)
+        else:
+            self.show()
 
     def complete_progress(self):
         # kill the thread
         self.p_thread.quit()
         self.p_thread.wait()
-        # remove the progress bar from the status bar
-        self.main_win.statusBar().removeWidget(self.pbar)
-        self.main_win.statusBar().removeWidget(self)
-        self.main_win.statusBar().showMessage(self.completed_msg)
+        if not self.popup:
+            # remove the progress bar from the status bar
+            self.main_win.statusBar().removeWidget(self.pbar)
+            self.main_win.statusBar().removeWidget(self)
+        else:
+            self.main_win.statusBar().clearMessage()
+        self.main_win.update_status(self.completed_msg)
         self.close()
 
     def on_count_changed(self, value):
