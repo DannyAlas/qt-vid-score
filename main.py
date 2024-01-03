@@ -78,6 +78,8 @@ if __name__ == "__main__":
     app.setApplicationVersion(VERSION)
 
     main_window = MainWindow()
+    if args.file:
+        main_window.open_project_file(args.file)
     qdarktheme.setup_theme(theme="auto", corner_shape="rounded")
     main_window.show()
     sys.exit(app.exec())
