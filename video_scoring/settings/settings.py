@@ -75,12 +75,8 @@ class Settings:
         # a new project will be created for the old monolithic settings
         project = ProjectSettings()
         project.name = new_name
-        project.scoring_data.video_file_location = old_settings.get(
-            "video_file_location", ""
-        )
-        project.file_location = old_settings.get("file_location", new_location)
+        project.file_location = new_location
         old_scoring_data = old_settings.get("scoring_data", [])
-
         for old_track in old_scoring_data.get("behavior_tracks", []):
             track = BehaviorTrackSetting()
             track.name = old_track.get("name", "OLD TRACK")

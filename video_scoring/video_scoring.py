@@ -9,7 +9,6 @@ from typing import Any, Dict, Literal, Tuple, Union
 
 import logtail
 import requests
-from numpy import cross
 from qtpy import QtCore, QtGui, QtWidgets
 from qtpy.QtCore import QThread, QUrl, Signal
 from qtpy.QtWidgets import QMainWindow, QSplashScreen
@@ -17,7 +16,6 @@ from qtpy.QtWidgets import QMainWindow, QSplashScreen
 from video_scoring.command_stack import CommandStack
 from video_scoring.settings import (DockWidgetState, Layout, ProjectSettings,
                                     Settings, TDTData)
-from video_scoring.settings.base_settings import user_data_dir
 from video_scoring.widgets.analysis import VideoAnalysisDock
 from video_scoring.widgets.loaders import TDTLoader
 from video_scoring.widgets.progress import ProgressBar, ProgressSignals
@@ -195,6 +193,41 @@ class MainWindow(QMainWindow):
         self.set_central_widget(self.projects_w)
         self.projects_w.import_project()
 
+    def import_previous_project(self):
+        # prompt file dialog to get json
+        file_dialog = QtWidgets.QFileDialog()
+        file_dialog.setFileMode(QtWidgets.QFileDialog.FileMode.AnyFile)
+        file_dialog.setNameFilter("Project Files (*.json)")
+        file_dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptMode.AcceptOpen)
+        file_dialog.setDefaultSuffix("json")
+        if file_dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+            # try save current project
+            self.save_settings()
+            file = file_dialog.selectedFiles()[0]
+            if file is None:
+                return
+        # prompt file dialog to selct save location
+        save_dialog = QtWidgets.QFileDialog()
+        save_dialog.setFileMode(QtWidgets.QFileDialog.FileMode.AnyFile)
+        save_dialog.setNameFilter("Project Files (*.vsap)")
+        save_dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptMode.AcceptSave)
+        save_dialog.setDefaultSuffix("vsap")
+        if save_dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+            # try save current project
+            self.save_settings()
+            save_file = save_dialog.selectedFiles()[0]
+            if save_file is None:
+                return
+        old_settings = json.load(open(file, "r"))
+        new_prj = self.settings.migrate_from_old_settings(
+            old_settings=old_settings,
+            new_name="Imported Project",
+            new_location=save_file,
+        )
+        self.app_settings.projects.append((new_prj.uid, new_prj.file_location))
+        self.projects_w.add_projects()
+        self.save_settings()
+
     def open_project_file(self, file_path: str):
         self.save_settings()
         if not file_path.endswith(".vsap"):
@@ -206,7 +239,7 @@ class MainWindow(QMainWindow):
         try:
             project.load_from_file(file_path)
         except Exception as e:
-            self.update_status(e, logging.ERROR)
+            self.update_status(str(e), logging.ERROR)
             return
         self.load_project(project)
         if self.splash is not None:
@@ -221,7 +254,7 @@ class MainWindow(QMainWindow):
         self.update_check.update_available.connect(self.update_available)
         self.update_check.no_update.connect(self.no_update_available)
         self.update_check.update_error.connect(
-            lambda e: self.update_status(e, logging.ERROR)
+            lambda e: self.update_status(str(e), logging.ERROR)
         )
         self.update_check.no_update.connect(
             lambda: self.update_status(
@@ -315,11 +348,11 @@ class MainWindow(QMainWindow):
         self.tray_icon.show()
 
     def update_status(
-        self, message, log_level=logging.DEBUG, do_log=True, display_error=True
+        self, message: str, log_level=logging.DEBUG, do_log=True, display_error=True
     ):
 
         if self.status_bar is not None:
-            self.status_bar.showMessage(message)
+            self.status_bar.showMessage(str(message))
         if display_error and log_level == logging.ERROR:
             msg = QtWidgets.QMessageBox()
             msg.setWindowTitle("Error")
@@ -362,6 +395,9 @@ class MainWindow(QMainWindow):
         self.file_menu.addAction("New Project", self.new_project)
         self.file_menu.addAction("Open Project", self.open_project)
         self.file_menu.addAction("Import Project", self.import_project_file)
+        self.file_menu.addAction(
+            "Import Previous Project", self.import_previous_project
+        )
         self.file_menu.addAction("Save Project", self.save_settings)
         self.file_menu.addAction("Save Project As", self.save_project_as)
         self.file_menu.addSeparator()
@@ -425,6 +461,7 @@ class MainWindow(QMainWindow):
                             "New Project",
                             "Open Project",
                             "Import Project",
+                            "Import Previous Project",
                             "Exit",
                         ]:
                             sub_action.setEnabled(True)

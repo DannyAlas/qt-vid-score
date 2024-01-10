@@ -744,52 +744,50 @@ class TimelineDockWidget(QDockWidget):
             self.set_length(
                 self.main_win.video_player_dw.video_widget.play_worker.vc.len
             )
-
-            for track_s in self.main_win.project_settings.scoring_data.behavior_tracks:
-                try:
-                    track_item = self.timeline_view.add_behavior_track(track_s.name)
-                except ValueError as e:
-                    from uuid import uuid4
-
-                    new_track_name = track_s.name + "_" + str(uuid4())
-                    try:
-                        track_item = self.timeline_view.add_behavior_track(
-                            new_track_name
-                        )
-                    except ValueError as e:
-                        QtWidgets.QMessageBox.critical(
-                            self,
-                            "Track Name Error",
-                            f"CRIITICAL ERROR LOADING TRACK {track_s.name}:\n{str(e)}",
-                        )
-                        return
-                track_item.update_item_colors(track_s.color)
-                try:
-                    track_item.update_shortcut(
-                        QtGui.QKeySequence(track_s.save_timestamp_key_sequence),
-                    )
-                    track_item.update_unsure_shortcut(
-                        QtGui.QKeySequence(track_s.save_unsure_timestamp_key_sequence),
-                    )
-                except Exception as e:
-                    self.main_win.update_status(
-                        f"Error loading track {track_s.name} shortcut: {str(e)}",
-                        logging.ERROR,
-                    )
-                for item in track_s.behavior_items:
-                    self.timeline_view.silent_add_oo_behavior(
-                        onset=item.onset,
-                        offset=item.offset,
-                        track_idx=self.timeline_view.get_track_idx_from_name(
-                            track_item.name
-                        ),
-                        unsure=item.unsure,
-                    )
-
-            self.load_tracks()
-            self.main_win.timestamps_dw.refresh()
         else:
             self.set_length(100)
+
+        for track_s in self.main_win.project_settings.scoring_data.behavior_tracks:
+            try:
+                track_item = self.timeline_view.add_behavior_track(track_s.name)
+            except ValueError as e:
+                from uuid import uuid4
+
+                new_track_name = track_s.name + "_" + str(uuid4())
+                try:
+                    track_item = self.timeline_view.add_behavior_track(new_track_name)
+                except ValueError as e:
+                    QtWidgets.QMessageBox.critical(
+                        self,
+                        "Track Name Error",
+                        f"CRIITICAL ERROR LOADING TRACK {track_s.name}:\n{str(e)}",
+                    )
+                    return
+            track_item.update_item_colors(track_s.color)
+            try:
+                track_item.update_shortcut(
+                    QtGui.QKeySequence(track_s.save_timestamp_key_sequence),
+                )
+                track_item.update_unsure_shortcut(
+                    QtGui.QKeySequence(track_s.save_unsure_timestamp_key_sequence),
+                )
+            except Exception as e:
+                self.main_win.update_status(
+                    f"Error loading track {track_s.name} shortcut: {str(e)}",
+                    logging.ERROR,
+                )
+            for item in track_s.behavior_items:
+                self.timeline_view.silent_add_oo_behavior(
+                    onset=item.onset,
+                    offset=item.offset,
+                    track_idx=self.timeline_view.get_track_idx_from_name(
+                        track_item.name
+                    ),
+                    unsure=item.unsure,
+                )
+
+        self.load_tracks()
+        self.main_win.timestamps_dw.refresh()
         self.loaded.emit()
 
     def import_timestamps(

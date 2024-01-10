@@ -235,7 +235,7 @@ class VideoWidget(QWidget):
             self.play_worker.deleteLater()
 
     def updateStatus(self, err, show):
-        self.main_win.update_status(err)
+        self.main_win.update_status(str(err))
 
     def paintEvent(self, a0: QPaintEvent | None) -> None:
         if self.play_worker is None:
