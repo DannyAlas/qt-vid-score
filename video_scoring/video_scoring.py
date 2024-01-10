@@ -1,4 +1,5 @@
 import base64
+import dis
 import inspect
 import json
 import logging
@@ -313,7 +314,13 @@ class MainWindow(QMainWindow):
         self.update_thread.start()
 
     def _run_installer(self):
-        # run the installer
+        # if we're on windows, run the installer
+        import sys  # lazy import
+        from utils import run_exe_as_admin
+
+        if not sys.platform.startswith("win"):
+            self.update_status(f"{sys.platform} is not supported", logging.ERROR)
+            return
         installer_dir = os.path.join(
             os.getenv("LOCALAPPDATA"), "Video Scoring", "installer"
         )
@@ -322,9 +329,10 @@ class MainWindow(QMainWindow):
             for file in os.listdir(installer_dir)
             if file.endswith(".exe")
         ][0]
-        import subprocess
-
-        subprocess.Popen(installer_file, shell=True)
+        if not os.path.exists(installer_file):
+            self.update_status("Installer not found", logging.ERROR)
+            return
+        run_exe_as_admin(installer_file, shell=True)
         self.close()
 
     def get_icon(self, icon_name: str, request_object: QtCore.QObject) -> "DynamicIcon":
