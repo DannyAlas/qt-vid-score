@@ -37,17 +37,23 @@ class SettingsDockWidget(QtWidgets.QDockWidget):
         self.tool_bar.setOrientation(Qt.Orientation.Horizontal)
         self.tool_bar.setContextMenuPolicy(Qt.ContextMenuPolicy.PreventContextMenu)
         self.tool_bar.setIconSize(QtCore.QSize(16, 16))
-        self.refresh_action = QtWidgets.QAction(
-            self.main_win._get_icon("refresh.svg", svg=True), "Refresh", self
+        self.clear_text_action = QtWidgets.QAction("Clear Text", self)
+        self.clear_text_action.setIcon(
+            self.main_win.get_icon("entry-clear.svg", self.clear_text_action)
+        )
+        self.clear_text_action.triggered.connect(self.clear_search_text)
+        self.refresh_action = QtWidgets.QAction("Refresh", self)
+        self.refresh_action.setIcon(
+            self.main_win.get_icon("refresh.svg", self.refresh_action)
         )
         self.refresh_action.triggered.connect(self.refresh)
-        self.tool_bar.addAction(self.refresh_action)
         self.search_bar = QtWidgets.QLineEdit()
         self.search_bar.setPlaceholderText("Search")
         self.search_bar.textChanged.connect(self.search)
         self.tool_bar.addWidget(self.search_bar)
+        self.tool_bar.addAction(self.clear_text_action)
+        self.tool_bar.addAction(self.refresh_action)
         self.tab_widget = QtWidgets.QTabWidget()
-        self.tab_widget.addAction(self.refresh_action)
         self.tab_widget.setTabPosition(QtWidgets.QTabWidget.TabPosition.North)
         self.tab_widget.setDocumentMode(True)
         self.create_tabs()
@@ -60,6 +66,9 @@ class SettingsDockWidget(QtWidgets.QDockWidget):
         self.main_widget.setLayout(self.main_layout)
         self.main_layout.addWidget(self.tab_widget)
         self.setWidget(self.main_widget)
+
+    def clear_search_text(self):
+        self.search_bar.setText("")
 
     def search(self, text: str):
         # search the search_dict for the text
@@ -825,7 +834,10 @@ class SettingsDockWidget(QtWidgets.QDockWidget):
         self.main_win.project_settings.key_bindings.__setattr__(
             widget.objectName(), value.toString()
         )
-        self.main_win.register_shortcut(widget.objectName(), value.toString())
+        try:
+            self.main_win.register_shortcut_name(widget.objectName(), value.toString())
+        except:
+            pass
 
     def get_help_text(
         self,

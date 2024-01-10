@@ -1,14 +1,16 @@
 import re
 from typing import TYPE_CHECKING, Literal, Optional
+from uuid import uuid4
 
-from qtpy.QtGui import QBrush, QColor
-from qtpy.QtWidgets import (QGraphicsItem, QGraphicsRectItem,
-                            QGraphicsSceneMouseEvent, QGraphicsTextItem)
+from qtpy.QtGui import QBrush, QColor, QKeySequence
+from qtpy.QtWidgets import (QGraphicsRectItem, QGraphicsSceneMouseEvent,
+                            QGraphicsTextItem)
 
 from video_scoring.widgets.timeline.behavior_items import OnsetOffsetItem
 
 if TYPE_CHECKING:
     from video_scoring.widgets.timeline.timeline import TimelineView
+    from video_scoring.widgets.timeline.track_header import TrackHeader
 
 
 class BehaviorTrack(QGraphicsRectItem):
@@ -23,12 +25,15 @@ class BehaviorTrack(QGraphicsRectItem):
         super().__init__()
         self.parent = parent
         self.name = name
-        self.track_name_item = QGraphicsTextItem(self.name)
         self.y_position = y_position
         self.track_height = track_height
         self.behavior_type = behavior_type
+        self.save_ts_ks = QKeySequence()
+        self.save_uts_ks = QKeySequence()
+
         # TODO: Maybe radomize this across tracks from a palette?
         self.item_color = "#6aa1f5"  # default color
+        self.track_header = None
         self.setToolTip(name)
         self.setBrush(QBrush(QColor("#545454")))
 
@@ -37,14 +42,33 @@ class BehaviorTrack(QGraphicsRectItem):
 
         self.curr_behavior_item: Optional[OnsetOffsetItem] = None
 
-    def add_behavior(self, onset, unsure=False):
+    def get_item(self, onset: int) -> Optional[OnsetOffsetItem]:
+        return self.behavior_items.get(onset, None)
+
+    def add_behavior(self, onset, unsure=False) -> tuple[bool, OnsetOffsetItem]:
+        """Add a new behavior item to the track.
+
+        Parameters
+        ----------
+        onset : int
+            The onset frame of the new behavior item
+        unsure : bool, optional
+            Whether or not the behavior is unsure, by default False
+
+        Returns
+        -------
+        tuple[bool, OnsetOffsetItem]
+            A tuple containing a bool indicating whether or not the behavior was added. If it was, the second item is the new behavior item. If it wasn't, the second item is the item that overlaps with the new item.
+        """
         # add a new behavior item
-        # if offset is none we will be changing the offset based on the playheads position
+        ovlp = self.check_for_overlap(onset)
+        if ovlp is not None:
+            return False, ovlp
         self.curr_behavior_item = OnsetOffsetItem(
             onset, onset + 1, unsure, self.parent, self
         )
         self.behavior_items[onset] = self.curr_behavior_item
-        return self.curr_behavior_item
+        return True, self.curr_behavior_item
 
     def remove_behavior(self, item: "OnsetOffsetItem"):
         # remove the given behavior item
@@ -108,9 +132,6 @@ class BehaviorTrack(QGraphicsRectItem):
                 # if our new onset is between the onset and offset of another item
                 if other_onset <= onset and other_item.offset >= onset + 1:
                     return True
-                # if we encompass another item
-                if onset <= other_onset and item.offset >= other_item.offset:
-                    return True
         # we're updating the offset
         if offset is not None and offset != item.offset:
             for other_onset, other_item in self.behavior_items.items():
@@ -121,7 +142,7 @@ class BehaviorTrack(QGraphicsRectItem):
                 if offset - 1 >= other_onset and offset <= other_item.offset:
                     return True
                 # if we encompass another item, don't update the onset or offset
-                if item.onset <= other_onset and offset >= other_item.offset:
+                if onset <= other_onset and offset >= other_item.offset:
                     return True
         return False
 
@@ -148,30 +169,69 @@ class BehaviorTrack(QGraphicsRectItem):
 
     def update_name(self, name: str):
         self.name = name
-        self.track_name_item.setPlainText(name)
+        self.track_header.label.setText(name)
+        self.setToolTip(name)
 
-    def update_item_colors(self, color: str):
-        self.item_color = color
-        _color = QColor(color)
+    def update_item_colors(self, color_str: str):
+        color = QColor(color_str)
+        self.item_color = color.name()
         for item in self.behavior_items.values():
-            item.base_color = _color
-            item.highlight_color = _color.lighter(150)
-            item.setBrush(QBrush(_color))
+            item.base_color = color
+            item.highlight_color = color.lighter(150)
+            item.setBrush(QBrush(color))
 
-    def load(self, data: dict):
-        self.name = data["name"]
-        self.y_position = data["y_position"]
-        self.track_height = data["track_height"]
-        self.behavior_type = data["behavior_type"]
-        for item_data in data["behavior_items"]:
-            i = self.add_behavior(item_data["onset"])
-            i.set_offset(item_data["offset"])
+    def update_shortcut(self, key_sequence: QKeySequence):
+        if self.save_ts_ks == key_sequence:
+            return
+        func_name = f"Save Timestamp on {self.name}"
+        # create a method for this class with the name of the function
+        setattr(
+            self,
+            func_name,
+            lambda: self.save_sure_ts_on_shortcut(),
+        )
+        try:
+            self.parent.main_window.register_shortcut(
+                method=getattr(self, func_name),
+                key_sequence=key_sequence,
+                name=func_name,
+            )
+        except Exception as e:
+            raise Exception(
+                f"Could not register shortcut `{key_sequence.toString()}` for track {self.name} because {e}"
+            )
+        self.save_ts_ks = key_sequence
 
-    def save(self):
-        return {
-            "name": self.name,
-            "y_position": self.y_position,
-            "track_height": self.track_height,
-            "behavior_type": self.behavior_type,
-            "behavior_items": [item.save() for item in self.behavior_items.values()],
-        }
+    def update_unsure_shortcut(self, key_sequence: QKeySequence):
+        if self.save_uts_ks == key_sequence:
+            return
+        func_name = f"Save Unsure Timestamp on {self.name}"
+        setattr(
+            self,
+            func_name,
+            lambda: self.save_unsure_ts_on_shortcut(),
+        )
+        try:
+            self.parent.main_window.register_shortcut(
+                method=getattr(self, func_name),
+                key_sequence=key_sequence,
+                name=func_name,
+            )
+        except Exception as e:
+            raise Exception(
+                f"Could not register shortcut `{key_sequence.toString()}` for track {self.name} because {e}"
+            )
+        self.save_uts_ks = key_sequence
+
+    def set_track_header(self, header: "TrackHeader"):
+        self.track_header = header
+
+    def save_sure_ts_on_shortcut(self):
+        # set the timeline track_name_to_save to this track's name
+        self.parent.track_name_to_save_on = self.name
+        self.parent._parent.save_timestamp()
+
+    def save_unsure_ts_on_shortcut(self):
+        # set the timeline track_name_to_save to this track's name
+        self.parent.track_name_to_save_on = self.name
+        self.parent._parent.save_timestamp(unsure=True)

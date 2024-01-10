@@ -163,18 +163,15 @@ class DeleteTrackCommand(Command):
             self.timeline_view.behavior_tracks.index(self.track)
         )
         self.timeline_view.scene().removeItem(self.track)
-        self.timeline_view.scene().removeItem(self.track.track_name_item)
-        self.timeline_view.update_track_view()
+        self.timeline_view._parent.track_header.remove_track_header(self.track)
         self.timeline_view.scene().update()
-        self.timeline_view.parent.update_track_to_save()
 
     def undo(self):
         self.timeline_view.behavior_tracks.append(self.track)
         self.timeline_view.scene().addItem(self.track)
+        self.timeline_view._parent.track_header.add_track_header(self.track)
         # reset the y position of the tracks
-        self.timeline_view.update_track_view()
         self.timeline_view.scene().update()
-        self.timeline_view.parent.update_track_to_save()
 
 
 class MarkerMoveCommand(Command):

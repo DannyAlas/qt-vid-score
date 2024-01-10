@@ -102,7 +102,9 @@ class OnsetOffsetItem(QGraphicsRectItem):
             unsure_action.triggered.connect(lambda: self.parent.set_unsure(self, True))
             unsure_action.triggered.connect(menu.close)
         delete_action = menu.addAction("Delete")
-        delete_action.triggered.connect(lambda: self.parent.remove_behavior(self))
+        delete_action.triggered.connect(
+            lambda: self.view.delete_oo_behavior(onset=self.onset, track=self.parent)
+        )
         return menu
 
     def update_tooltip(self):
@@ -148,6 +150,7 @@ class OnsetOffsetItem(QGraphicsRectItem):
         # otherwise, update the behavior
         else:
             self.set_onset(new_onset=n_onset)
+        self.update()
 
     def _drag_right_edge(self, event: QGraphicsSceneMouseEvent) -> None:
         new_width = (
@@ -177,8 +180,8 @@ class OnsetOffsetItem(QGraphicsRectItem):
         self.setRect(
             self.rect().left(), self.rect().top(), new_width, self.rect().height()
         )
-        n_offset = (
-            int(self.mapToScene(QPointF(event.pos())).x() / self.view.frame_width) + 1
+        n_offset = int(
+            round(self.mapToScene(QPointF(event.pos())).x() / self.view.frame_width)
         )
 
         if self.parent.overlap_with_item_check(self, offset=n_offset):
@@ -187,6 +190,7 @@ class OnsetOffsetItem(QGraphicsRectItem):
             )
         else:
             self.set_offset(new_offset=n_offset)
+        self.update()
 
     def _drag_item(self, event: QGraphicsSceneMouseEvent) -> None:
         scene_x: QPointF = self.mapToScene(
@@ -206,7 +210,6 @@ class OnsetOffsetItem(QGraphicsRectItem):
         n_offset = self.view.get_frame_of_x_pos(
             self.mapToScene(self.rect().right(), 0).x()
         )
-
         if self.parent.overlap_with_item_check(self, onset=n_onset, offset=n_offset):
             self.setPos(old_x, self.pos().y())
         else:
@@ -236,6 +239,8 @@ class OnsetOffsetItem(QGraphicsRectItem):
         new_offset : int
             The new offset value
         """
+        if new_offset < self.onset + 1:
+            return
         self._offset = new_offset
         self.view.main_window.timestamps_dw.update()
         self.update_tooltip()
@@ -265,6 +270,7 @@ class OnsetOffsetItem(QGraphicsRectItem):
         """
         self.unsure = unsure
         self.update_tooltip()
+        self.update()
 
     def highlight(self):
         self.setBrush(QBrush(self.highlight_color))
@@ -429,25 +435,22 @@ class OnsetOffsetItem(QGraphicsRectItem):
         option: QStyleOptionGraphicsItem,
         widget: QWidget | None = None,
     ) -> None:
-        # make a light gray pen with rounded edges
-        super().paint(painter, option, widget)
+        painter.setPen(Qt.GlobalColor.transparent)
+        painter.setBrush(QBrush(self.base_color))
+        painter.drawRect(self.rect())
         edge_color = self.highlight_color.lighter(150)
-        if self.hovered:
-            pen = QPen(Qt.GlobalColor.lightGray, 1)
+        if self.isSelected():
+            pen = QPen(Qt.GlobalColor.lightGray, 2)
             painter.setPen(pen)
-            # add a border around the rectangle with no fill
-            border = QRectF(
-                self.rect().left(),
-                self.rect().top(),
-                self.rect().width(),
-                self.rect().height(),
-            )
-            painter.drawRect(border)
+            painter.drawRect(self.rect())
+        if self.hovered or self.hover_left_edge or self.hover_right_edge:
+            pen = QPen(Qt.GlobalColor.lightGray, 3)
+            painter.setPen(pen)
+            painter.drawRect(self.rect())
         if self.hover_left_edge:
-
             pen = QPen(edge_color, 3)
             painter.setPen(pen)
-            # plce the line on the left edge but offset by 1 pixel so that it doesn't get cut off
+            painter.setBrush(QBrush(edge_color))
             painter.drawLine(
                 int(self.rect().left()) + 1,
                 2,
@@ -457,6 +460,7 @@ class OnsetOffsetItem(QGraphicsRectItem):
         elif self.hover_right_edge:
             pen = QPen(edge_color, 3)
             painter.setPen(pen)
+            painter.setBrush(QBrush(edge_color))
             painter.drawLine(
                 int(self.rect().width()),
                 2,

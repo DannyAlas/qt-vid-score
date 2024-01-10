@@ -1,25 +1,27 @@
 import json
-from math import e
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import requests
+import sentry_sdk
 from qtpy import QtCore, QtGui, QtWidgets
 from sentry_sdk import last_event_id
-import sentry_sdk
+
+if TYPE_CHECKING:
+    from video_scoring import MainWindow
 
 
 class FeedbackDialog(QtWidgets.QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent: "MainWindow"):
         super().__init__(parent)
         self.feedback_url = (
             "https://sentry.io/api/0/projects/daniel-alas/video-scoring/user-feedback/"
         )
 
         self.setWindowTitle("Feedback")
-        self.setWindowIcon(parent._get_icon("icon.png"))
+        self.setWindowIcon(parent.get_icon("icon.png", self))
 
         self.setWindowModality(QtCore.Qt.WindowModality.ApplicationModal)
-
 
         # name label
         self.name_label = QtWidgets.QLabel("Name")
@@ -36,7 +38,6 @@ class FeedbackDialog(QtWidgets.QDialog):
         self.submit_button.clicked.connect(self.submit_feedback)
         self.cancel_button = QtWidgets.QPushButton("Cancel")
         self.cancel_button.clicked.connect(self.close)
-        
 
         # layout
         layout = QtWidgets.QGridLayout(self)
@@ -46,15 +47,18 @@ class FeedbackDialog(QtWidgets.QDialog):
         layout.addWidget(self.email_line_edit, 1, 1)
         layout.addWidget(self.comments_label, 2, 0)
         layout.addWidget(self.comments_text_edit, 2, 1)
-        self.button_box.addButton(self.submit_button, QtWidgets.QDialogButtonBox.ButtonRole.AcceptRole)
-        self.button_box.addButton(self.cancel_button, QtWidgets.QDialogButtonBox.ButtonRole.RejectRole)
+        self.button_box.addButton(
+            self.submit_button, QtWidgets.QDialogButtonBox.ButtonRole.AcceptRole
+        )
+        self.button_box.addButton(
+            self.cancel_button, QtWidgets.QDialogButtonBox.ButtonRole.RejectRole
+        )
         layout.addWidget(self.button_box, 3, 0, 1, 2)
 
     def format_response_json(self, response_text):
         return json.dumps(
             json.loads(response_text), sort_keys=True, indent=4, separators=(",", ": ")
-        )        
-    
+        )
 
     def validate(self):
         if not self.name_line_edit.text():

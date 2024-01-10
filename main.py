@@ -5,33 +5,37 @@ import os
 import sys
 import traceback as tb
 
-import qdarktheme
-from qtpy.QtWidgets import QApplication
-
 import sentry_sdk
+from dotenv import load_dotenv
+from logtail import LogtailHandler
 
-os.environ["VERSION"] = VERSION # WE MUST SET THIS BEFORE IMPORTING THE PROJECT
+os.environ["VERSION"] = VERSION  # WE MUST SET THIS BEFORE IMPORTING THE PROJECT
 from video_scoring import MainWindow
+from video_scoring.singleton_app import SingleInstanceApplication
 
-sentry_sdk.init(
-    dsn="https://8b9d5384e79de12983fc6977a221168c@o4506504253538304.ingest.sentry.io/4506504259764224",
-    enable_tracing=True,
-    release=VERSION,
-    environment="dev",
-    send_default_pii=True, # TODO: implement custom scrubber for now now PII is included so this is safe
-    debug=True
-)
-log = logging.getLogger()
+load_dotenv()
+log = logging.getLogger("video_scoring")
 
 
 def logging_exept_hook(exctype: type, value: BaseException, trace: BaseException):
-    # create BaseException instance to get traceback
-    sentry_sdk.capture_exception(value)
     log.critical(f"{str(exctype).upper()}: {value}\n\t{tb.format_exc()}")
+    os.environ["UNHANDLED_EXCEPTION"] = "True"
     sys.__excepthook__(exctype, value, trace)
+
 
 sys.excepthook = logging_exept_hook
 
+handler = LogtailHandler(source_token=os.getenv("LOGTAIL_TOKEN"))
+log.addHandler(handler)
+
+sentry_sdk.init(
+    dsn=os.getenv("SENTRY_DSN"),
+    enable_tracing=True,
+    release=VERSION,
+    environment="dev",
+    send_default_pii=True,  # TODO: implement custom scrubber for now no PII is included so this is safe
+    debug=False,
+)
 try:
     from ctypes import windll
 
@@ -39,8 +43,6 @@ try:
     windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
 except ImportError:
     pass
-log = logging.getLogger()
-
 
 parser = argparse.ArgumentParser(description="Video Scoring")
 # we can be passed a .vsap file to open there will be no args passed to the app just a file
@@ -69,17 +71,16 @@ if args.version:
     print(f"Video Scoring v{VERSION}")
     sys.exit(0)
 
-
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
+    app = SingleInstanceApplication(sys.argv)
     app.setApplicationName("Video Scoring")
     app.setOrganizationName("Daniel Alas")
     app.setOrganizationDomain("danielalas.com")
     app.setApplicationVersion(VERSION)
-
-    main_window = MainWindow()
     if args.file:
+        main_window = MainWindow(load_file=True, logging_level=log.getEffectiveLevel())
         main_window.open_project_file(args.file)
-    qdarktheme.setup_theme(theme="auto", corner_shape="rounded")
+    else:
+        main_window = MainWindow(logging_level=log.getEffectiveLevel())
     main_window.show()
     sys.exit(app.exec())

@@ -3,6 +3,7 @@
 # if it finds a newer version, it will ask the user if they want to update
 # if they do, it will download the latest release into a temporary directory and run the installer
 
+import json
 import os
 from typing import TYPE_CHECKING
 
@@ -12,6 +13,8 @@ from qtpy import QtCore, QtWidgets
 from qtpy.QtCore import Qt, QThread, Signal
 from qtpy.QtWidgets import QDialog, QMainWindow, QPushButton
 
+from video_scoring.settings.base_settings import user_data_dir
+from video_scoring.settings.settings import Settings
 from video_scoring.widgets.progress import ProgressSignals
 
 if TYPE_CHECKING:
@@ -208,10 +211,6 @@ class UpdatedDialog(QDialog):
         self.setWindowTitle("Update Complete")
         self.version = version
         self.main_win = main_win
-        import json
-
-        from video_scoring.settings.base_settings import user_data_dir
-
         old_settings_file = os.path.join(
             os.path.dirname(user_data_dir()), "settings.json"
         )
@@ -223,9 +222,7 @@ class UpdatedDialog(QDialog):
             self._populate_updated()
 
     def _populate_updated(self):
-        self.body = QtWidgets.QLabel()
-        self.body.setTextFormat(Qt.TextFormat.RichText)
-        self.body.setWordWrap(True)
+        self.body = QtWidgets.QTextBrowser()
         self.body.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
         self.body.setOpenExternalLinks(True)
         self.body.setText(
@@ -324,12 +321,11 @@ class UpdatedDialog(QDialog):
         self.setLayout(self.layout)
 
     def import_old_settings(self, old_settings):
-        from video_scoring.settings.settings import Settings
 
         self.project_name.setStyleSheet("")
         self.file_location.setStyleSheet("")
         if self.input_validated():
-            new_prj = Settings().migrate_from_old_settings(
+            new_prj = Settings(self.main_win).migrate_from_old_settings(
                 old_settings=old_settings,
                 new_name=self.project_name.text(),
                 new_location=self.file_location.text(),
@@ -339,16 +335,10 @@ class UpdatedDialog(QDialog):
             )
             self.main_win.projects_w.add_projects()
             # delete the old settings file
-            import os
-
-            from video_scoring.settings.base_settings import user_data_dir
-
             os.remove(os.path.join(os.path.dirname(user_data_dir()), "settings.json"))
             self.accept()
 
     def input_validated(self):
-        import os
-
         if self.project_name.text() == "":
             self.project_name.setStyleSheet("border: 1px solid red;")
             return False

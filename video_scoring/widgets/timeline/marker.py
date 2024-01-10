@@ -13,8 +13,8 @@ if TYPE_CHECKING:
     from qtpy.QtCore import QPointF
 
     from video_scoring import MainWindow
+    from video_scoring.widgets.timeline.ruler import TimelineRulerView
     from video_scoring.widgets.timeline.timeline import TimelineView
-    from video_scoring.widgets.timeline.track import BehaviorTrack
 
 
 class MarkerSignals(QObject):
@@ -34,15 +34,14 @@ class MarkerItem(QGraphicsRectItem):
         self,
         onset: int,
         offset: int,
-        view: "TimelineView",
-        parent: "TimelineView" = None,
+        tview: "TimelineView",
+        rview: "TimelineRulerView",
+        parent=None,
     ):
         super().__init__()
-        self.parent = parent
-        self.view = view
-        self.main_win = self.view.main_window
-        self.open_bracket_icon = self.main_win._get_icon("open-bracket.png")
-        self.close_bracket_icon = self.main_win._get_icon("close-bracket.png")
+        self.timeline_view = tview
+        self.ruler_view = rview
+        self.main_win = self.timeline_view.main_window
         self.signals = MarkerSignals()
 
         # DO NOT MODIFY THESE DIRECTLY
@@ -112,7 +111,7 @@ class MarkerItem(QGraphicsRectItem):
         scene_x: QPointF = self.mapToScene(
             QPointF(event.pos()) - self.last_mouse_pos
         ).x()
-        nearest_frame = self.view.get_frame_of_x_pos(scene_x)
+        nearest_frame = self.ruler_view.get_frame_of_x_pos(scene_x)
         # Ensure the onset is not before the beginning of the video
         if scene_x < 0:
             return
@@ -122,7 +121,7 @@ class MarkerItem(QGraphicsRectItem):
             return
         # Get the x position of the nearest frame in local coordinates (by subtracting the current x position)
         snapped_x_local = (
-            round(scene_x / self.view.frame_width) * self.view.frame_width
+            round(scene_x / self.ruler_view.frame_width) * self.ruler_view.frame_width
         ) - self.pos().x()
         new_width = self.rect().right() - snapped_x_local  # Calculate the new width
 
@@ -134,7 +133,7 @@ class MarkerItem(QGraphicsRectItem):
         self.setRect(
             snapped_x_local, self.rect().top(), new_width, self.rect().height()
         )
-        n_onset = self.view.get_frame_of_x_pos(
+        n_onset = self.ruler_view.get_frame_of_x_pos(
             self.mapToScene(self.rect().left(), 0).x()
         )
 
@@ -152,13 +151,13 @@ class MarkerItem(QGraphicsRectItem):
                 # get the x position of the mouse in the scene, but don't let it exceed the right edge of the scene
                 min(
                     self.mapToScene(QPointF(event.pos())).x(),
-                    self.view.sceneRect().right(),
+                    self.ruler_view.sceneRect().right(),
                 )
                 # Snap the x position to the nearest frame by dividing by the frame width,
                 # rounding to the nearest frame, then multiplying by the frame width
-                / self.view.frame_width
+                / self.ruler_view.frame_width
             )
-            * self.view.frame_width
+            * self.ruler_view.frame_width
             # subtract the current x position to convert to local x position
             - self.pos().x()
         )
@@ -175,7 +174,8 @@ class MarkerItem(QGraphicsRectItem):
             self.rect().left(), self.rect().top(), new_width, self.rect().height()
         )
         n_offset = (
-            int(self.mapToScene(QPointF(event.pos())).x() / self.view.frame_width) + 1
+            int(self.mapToScene(QPointF(event.pos())).x() / self.ruler_view.frame_width)
+            + 1
         )
 
         if not self.check_validity(offset=n_offset):
@@ -189,7 +189,9 @@ class MarkerItem(QGraphicsRectItem):
         scene_x: QPointF = self.mapToScene(
             QPointF(event.pos()) - self.last_mouse_pos
         ).x()
-        new_x = self.view.get_x_pos_of_frame(self.view.get_frame_of_x_pos(scene_x))
+        new_x = self.ruler_view.get_x_pos_of_frame(
+            self.ruler_view.get_frame_of_x_pos(scene_x)
+        )
 
         if new_x < 0:
             new_x = 0
@@ -197,10 +199,10 @@ class MarkerItem(QGraphicsRectItem):
         old_x = self.pos().x()
 
         self.setPos(new_x, self.pos().y())
-        n_onset = self.view.get_frame_of_x_pos(
+        n_onset = self.ruler_view.get_frame_of_x_pos(
             self.mapToScene(self.rect().left(), 0).x()
         )
-        n_offset = self.view.get_frame_of_x_pos(
+        n_offset = self.ruler_view.get_frame_of_x_pos(
             self.mapToScene(self.rect().right(), 0).x()
         )
 
@@ -232,7 +234,7 @@ class MarkerItem(QGraphicsRectItem):
             offset = self.offset
         if onset < 0:
             return False
-        if offset > self.view.num_frames:
+        if offset > self.timeline_view.num_frames:
             return False
         if onset >= offset:
             return False
@@ -248,11 +250,13 @@ class MarkerItem(QGraphicsRectItem):
             The new onset value
         """
         if not self.check_validity(onset=new_onset, offset=self.offset):
-            if self.check_validity(onset=new_onset, offset=self.view.num_frames):
-                self.set_offset(self.view.num_frames)
+            if self.check_validity(
+                onset=new_onset, offset=self.timeline_view.num_frames
+            ):
+                self.set_offset(self.timeline_view.num_frames)
         self._onset = new_onset
         self.update_tooltip()
-        self.view.scene().update()
+        self.ruler_view.scene().update()
 
     def set_offset(self, new_offset: int):
         """
@@ -265,7 +269,7 @@ class MarkerItem(QGraphicsRectItem):
         """
         self._offset = new_offset
         self.update_tooltip()
-        self.view.scene().update()
+        self.ruler_view.scene().update()
 
     def set_onset_offset(self, new_onset: int, new_offset: int):
         """
@@ -361,7 +365,9 @@ class MarkerItem(QGraphicsRectItem):
             self.cur_move_command.redo_onset = self.onset
             self.cur_move_command.redo_offset = self.offset
             self.signals.updated.emit()
-            self.view.parent.main_win.command_stack.add_command(self.cur_move_command)
+            self.timeline_view.parent.main_win.command_stack.add_command(
+                self.cur_move_command
+            )
         super().mouseReleaseEvent(event)
 
     def mouseMoveEvent(self, event):
@@ -473,7 +479,7 @@ class MarkerItem(QGraphicsRectItem):
         painter.setBrush(QBrush(QColor("#ffffff")))
         painter.setPen(Qt.NoPen)
         painter.drawRect(
-            QRectF(0, 0, self.rect().width(), self.view.height() - 1),
+            QRectF(0, 0, self.rect().width(), self.timeline_view.height() - 1),
         )
 
     def save(self):

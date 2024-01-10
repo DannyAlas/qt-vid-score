@@ -3,47 +3,55 @@ import inspect
 import json
 import logging
 import os
-from typing import Any, Dict, Literal, Optional, Tuple, Union
+from logging.handlers import RotatingFileHandler
+from types import FunctionType
+from typing import Any, Dict, Literal, Tuple, Union
 
-import qdarktheme
+import logtail
 import requests
+from numpy import cross
 from qtpy import QtCore, QtGui, QtWidgets
 from qtpy.QtCore import QThread, QUrl, Signal
-from qtpy.QtWidgets import QMainWindow
+from qtpy.QtWidgets import QMainWindow, QSplashScreen
 
-from video_scoring import settings
 from video_scoring.command_stack import CommandStack
 from video_scoring.settings import (DockWidgetState, Layout, ProjectSettings,
                                     Settings, TDTData)
-from video_scoring.widgets.reporting import FeedbackDialog
+from video_scoring.settings.base_settings import user_data_dir
 from video_scoring.widgets.analysis import VideoAnalysisDock
 from video_scoring.widgets.loaders import TDTLoader
 from video_scoring.widgets.progress import ProgressBar, ProgressSignals
 from video_scoring.widgets.projects import ProjectsWidget
+from video_scoring.widgets.reporting import FeedbackDialog
 from video_scoring.widgets.settings import SettingsDockWidget
+from video_scoring.widgets.style_sheet import DynamicIcon, StyleSheet
 from video_scoring.widgets.timeline import TimelineDockWidget
 from video_scoring.widgets.timestamps import TimeStampsDockwidget
 from video_scoring.widgets.update import (UpdateCheck, UpdatedDialog,
                                           UpdateDialog, Updater)
 from video_scoring.widgets.video.frontend import VideoPlayerDockWidget
 
-log = logging.getLogger()
+log = logging.getLogger("video_scoring")
+
+
 class MainWindow(QMainWindow):
     loaded = Signal()
     project_loaded = Signal()
+    gui_loaded = Signal()
 
-    def __init__(self, logging_level=logging.INFO):
+    def __init__(self, logging_level=logging.INFO, load_file: bool = False):
         super().__init__()
+        self.splash_screen(load_file)
         self.setWindowTitle("Video Scoring Thing")
-        self.qt_settings = QtCore.QSettings("Root Lab", "Video Scoring")
-        self.settings = Settings()
+        self.settings = Settings(self)
         self.main_widget = QtWidgets.QWidget()
         self.command_stack = CommandStack()
+        self.style_sheet = StyleSheet(main_win=self)
         self.app_settings = self.settings.app_settings
         self.project_settings = None
         self.menu = None
         self.logging_level = logging_level
-        self.icons_dir = os.path.join(os.path.dirname(__file__), "resources")
+        self.icon_requester = {}
         self.setDockNestingEnabled(True)
         self.init_logging()
         self.set_icons()
@@ -54,6 +62,21 @@ class MainWindow(QMainWindow):
         self.init_doc_widgets()
         self.project_loaded.connect(self._loaders)
         self.loaded.emit()
+
+    def splash_screen(self, load_file: bool):
+        self.splash = QSplashScreen()
+        icon = QtGui.QPixmap(
+            r"C:\dev\projects\qt-vid-scoring\qt-vid-score\video_scoring\resources\icon.png"
+        )
+        # resize the icon to 200x200
+        self.splash.setPixmap(
+            icon.scaled(300, 300, QtCore.Qt.AspectRatioMode.KeepAspectRatio)
+        )
+        self.splash.show()
+        if load_file:
+            self.gui_loaded.connect(self.splash.close)
+        else:
+            self.loaded.connect(self.splash.close)
 
     def open_projects_window(self):
         self.save_settings()
@@ -124,21 +147,35 @@ class MainWindow(QMainWindow):
         return size, position
 
     def load_project(self, project: ProjectSettings):
-        log.info(f"Loading project {project.name}")
+        self.log_project_load(project)
         self.save_settings()
         self.project_settings = project
         self.update_status(f"Loading project {project.name}")
         self.set_window_sp()
         self.update_log_file()
         self.init_logging()
+        try:
+            self.projects_w.close()
+        except:
+            pass
         self.set_central_widget()
-        self.projects_w.close()
         self.load_doc_widgets()
-        self.init_key_shortcuts()
+        self.init_key_bindings()
         self.init_layouts_menu()
         self.load_last_project_layout()
 
         self.project_loaded.emit()
+
+    def log_project_load(self, project: ProjectSettings):
+        with logtail.context(
+            device={"id": self.app_settings.device_id},
+            project={
+                "name": project.name,
+                "file_location": project.file_location,
+                "video_file_location": project.scoring_data.video_file_location,
+            },
+        ):
+            log.info(f"Loaded project {project.name}")
 
     def set_central_widget(self, widget: QtWidgets.QWidget = None):
         """Set the central widget of the main window, if no widget is passed, the main_widget is set as the central widget"""
@@ -146,7 +183,7 @@ class MainWindow(QMainWindow):
             if hasattr(self, "video_player_dw"):
                 widget = self.video_player_dw
             else:
-                widget = self.main_widget
+                raise Exception("No central widget passed and no video player found")
         self.setCentralWidget(widget)
         self.update_menu()
 
@@ -172,6 +209,8 @@ class MainWindow(QMainWindow):
             self.update_status(e, logging.ERROR)
             return
         self.load_project(project)
+        if self.splash is not None:
+            self.splash.close()
 
     def check_for_update(self):
         self.update_checker_thread = QThread()
@@ -216,7 +255,9 @@ class MainWindow(QMainWindow):
                 version=self.app_settings.version, main_win=self, parent=self
             )
             self.updated_dialog.exec()
-            os.rmdir(installer_dir)
+            import shutil
+
+            shutil.rmtree(installer_dir)
             return
 
     def download_update(self):
@@ -253,22 +294,12 @@ class MainWindow(QMainWindow):
         subprocess.Popen(installer_file, shell=True)
         self.close()
 
-    def _get_icon(self, icon_name, as_string=False, svg=False):
-        if self.app_settings.theme == "dark":
-            icon_path = os.path.join(self.icons_dir, "dark", icon_name)
-        elif self.app_settings.theme == "light":
-            icon_path = os.path.join(self.icons_dir, icon_name)
-        elif self.app_settings.theme == "auto":
-            icon_path = os.path.join(self.icons_dir, "dark", icon_name)
-        else:
-            raise Exception(f"Theme {self.app_settings.theme} not recognized")
-        if not as_string:
-            return QtGui.QIcon(icon_path)
-        else:
-            return icon_path.replace("\\", "/")
+    def get_icon(self, icon_name: str, request_object: QtCore.QObject) -> "DynamicIcon":
+        """Get an icon by name"""
+        return self.style_sheet.get_icon(icon_name, request_object)
 
     def set_icons(self):
-        self.setWindowIcon(QtGui.QIcon(os.path.join(self.icons_dir, "icon.png")))
+        self.setWindowIcon(self.get_icon("icon.png", self))
         # set the tray icon
         if QtWidgets.QSystemTrayIcon.isSystemTrayAvailable():
             self.set_tray_icon()
@@ -279,15 +310,22 @@ class MainWindow(QMainWindow):
         self.tray_icon_menu.addAction("Show", self.show)
         self.tray_icon_menu.addAction("Exit", self.close)
         self.tray_icon.setContextMenu(self.tray_icon_menu)
-        self.tray_icon.setIcon(self._get_icon("icon.ico"))
+        self.tray_icon.setIcon(self.get_icon("icon.png", self.tray_icon))
         self.tray_icon.setToolTip("Video Scoring Thing")
         self.tray_icon.show()
 
     def update_status(
         self, message, log_level=logging.DEBUG, do_log=True, display_error=True
     ):
+
         if self.status_bar is not None:
             self.status_bar.showMessage(message)
+        if display_error and log_level == logging.ERROR:
+            msg = QtWidgets.QMessageBox()
+            msg.setWindowTitle("Error")
+            msg.setText(f"{message}")
+            msg.setIcon(QtWidgets.QMessageBox.Icon.Critical)
+            msg.exec()
         if not do_log:
             return
         if log_level == logging.INFO:
@@ -296,12 +334,6 @@ class MainWindow(QMainWindow):
             log.warning(message)
         elif log_level == logging.ERROR:
             log.error(message)
-            if display_error:
-                msg = QtWidgets.QMessageBox()
-                msg.setWindowTitle("Error")
-                msg.setText(f"{message}")
-                msg.setIcon(QtWidgets.QMessageBox.Icon.Critical)
-                msg.exec()
         elif log_level == logging.CRITICAL:
             log.critical(message)
         elif log_level == logging.DEBUG:
@@ -331,7 +363,7 @@ class MainWindow(QMainWindow):
         self.file_menu.addAction("Open Project", self.open_project)
         self.file_menu.addAction("Import Project", self.import_project_file)
         self.file_menu.addAction("Save Project", self.save_settings)
-        self.file_menu.addAction("Save Project As", self.save_settings_as)
+        self.file_menu.addAction("Save Project As", self.save_project_as)
         self.file_menu.addSeparator()
         self.import_menu = self.file_menu.addMenu("Import")
         if self.import_menu is None:
@@ -565,6 +597,7 @@ class MainWindow(QMainWindow):
         if layout_name not in self.project_settings.layouts.keys():
             self.update_status(f"Layout {layout_name} not found", logging.ERROR)
             return
+
         del self.project_settings.layouts[layout_name]
         # remove the action from the layouts menu
         for action in self.layouts_menu.actions():
@@ -580,7 +613,9 @@ class MainWindow(QMainWindow):
         # file dialog to select video
         file_dialog = QtWidgets.QFileDialog()
         file_dialog.setFileMode(QtWidgets.QFileDialog.FileMode.AnyFile)
-        file_dialog.setNameFilter("Videos (*.mp4 *.avi *.mov *.mkv *.wmv *.flv *.webm)")
+        file_dialog.setNameFilter(
+            "Videos (*.mp4 *.avi *.mov *.mkv *.wmv *.flv *.webm *.m4v) ;; All Files (*.*)"
+        )
         file_dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptMode.AcceptOpen)
         file_dialog.setDefaultSuffix("mp4")
         if file_dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
@@ -594,6 +629,13 @@ class MainWindow(QMainWindow):
             self.update_status(
                 f"Imported video at {self.project_settings.scoring_data.video_file_location}"
             )
+            with logtail.context(
+                device={"id": self.app_settings.device_id},
+                video={
+                    "file_location": self.project_settings.scoring_data.video_file_location
+                },
+            ):
+                log.info(f"Imported video")
             self.save_settings()
             self._loaders()
 
@@ -634,7 +676,6 @@ class MainWindow(QMainWindow):
                     f"Importing TDT Tank {file_dialog.selectedFiles()[0]}",
                     "Imported TDT Tank",
                 )
-                self.settings_dock_widget.refresh()
             except:
                 self.update_status(
                     f"Failed to import TDT Tank {file_dialog.selectedFiles()[0]}"
@@ -653,6 +694,11 @@ class MainWindow(QMainWindow):
             self.update_status(
                 f"Imported video at {self.project_settings.scoring_data.video_file_location}"
             )
+            with logtail.context(
+                device={"id": self.app_settings.device_id},
+                tank=self.project_settings.scoring_data.tdt_data.model_dump(),
+            ):
+                log.info(f"Imported TDT Tank")
             self.save_settings()
             self._loaders()
         except:
@@ -738,53 +784,56 @@ class MainWindow(QMainWindow):
     def open_settings_widget(self):
         self.settings_dock_widget.show()
 
-    def init_handlers(self):
-        """
-        Get all methods
-        """
+    def update_shortcut_handlers(self):
+        """Sets or updates the shortcut handlers for the main window and all child widgets. The shortcut handlers are methods that are named the same as the shortcut name. For example, if the shortcut name is `undo`, the method name should be `undo`."""
         self.shortcut_handlers = dict(
             inspect.getmembers(self, predicate=inspect.ismethod)
-        )
-        for child in self.children():
+        )  # set for the main window
+        for child in self.children():  # set for all child widgets
             self.shortcut_handlers.update(
                 dict(inspect.getmembers(child, predicate=inspect.ismethod))
             )
 
-    def init_key_shortcuts(self):
-        self.init_handlers()
-        for action, key_sequence in self.project_settings.key_bindings.items():
-            self.register_shortcut(action, key_sequence)
+    def init_key_bindings(self):
+        self.update_shortcut_handlers()
+        for method_name, key_sequence in self.project_settings.key_bindings.items():
+            self.register_shortcut_name(method_name, key_sequence)
 
-    def register_shortcut(self, action, key_sequence):
-        if key_sequence is None:
-            return
-        if not hasattr(self, "shortcut_handlers"):
-            self.init_handlers()
-
-        if action not in self.shortcut_handlers.keys():
-            # self.update_status(f"Action {action} not found in shortcut handlers")
-            return
-        # if the action is already registered, update the key sequence
-        if action in [
-            shortcut.objectName() for shortcut in self.findChildren(QtWidgets.QShortcut)
-        ]:
-            shortcut = self.findChild(QtWidgets.QShortcut, action)
+    def register_shortcut_name(self, method_name: str, key_sequence: str):
+        """Register a shortcut by method name and key sequence. If the shortcut already exists, it will be updated with the new key sequence. If the shortcut does not exist, it will be created."""
+        shortcut = self.findChild(QtWidgets.QShortcut, method_name)
+        if shortcut is not None:  # if the shortcut already exists, update it
             shortcut.setKey(QtGui.QKeySequence(key_sequence))
-        else:
-            # create a new shortcut
+        else:  # create it
             shortcut = QtWidgets.QShortcut(QtGui.QKeySequence(key_sequence), self)
-            shortcut.setObjectName(action)
-            shortcut.activated.connect(self.shortcut_handlers[action])
+            shortcut.setObjectName(method_name)
+            shortcut.activated.connect(self.shortcut_handlers[method_name])
+        return shortcut
+
+    def register_shortcut(
+        self,
+        method: FunctionType,
+        key_sequence: QtGui.QKeySequence,
+        name: Union[str, None] = None,
+    ):
+        """Register a shortcut by method and key sequence. If the shortcut already exists, it will be updated with the new key sequence. If the shortcut does not exist, it will be created."""
+        # check for collisions with existing shortcuts
+        for shortcut in self.findChildren(QtWidgets.QShortcut):
+            if shortcut.key() == key_sequence:
+                raise Exception(
+                    f"Shortcut `{key_sequence.toString()}` already exists for {shortcut.objectName()}"
+                )
+        # self.shortcut_handlers[method.__name__] = method
+        shortcut = QtWidgets.QShortcut(key_sequence, self)
+        if name is not None:
+            shortcut.setObjectName(name)
+        else:
+            shortcut.setObjectName(method.__name__)
+        shortcut.activated.connect(method)
+        return shortcut
 
     def change_theme(self, theme: Literal["dark", "light"]):
-        self.app_settings.theme = theme
-        qdarktheme.setup_theme(theme)
-        # deep search for all widgets
-        for widget in self.findChildren(QtWidgets.QWidget):
-            widget.style().unpolish(widget)
-            widget.style().polish(widget)
-            widget.update()
-            widget.setStyleSheet(qdarktheme.load_stylesheet(theme=theme))
+        self.style_sheet.set_theme(theme)
 
     ############################# TimeStamp Actions #############################
 
@@ -804,6 +853,7 @@ class MainWindow(QMainWindow):
                 self.project_settings.scoring_data.video_file_location
             )
         self.timeline_dw.load()
+        self.gui_loaded.emit()
         # self.analysis_dw.refresh()
 
     def new_project(self):
@@ -822,7 +872,7 @@ class MainWindow(QMainWindow):
         self.set_central_widget(self.projects_w)
 
     def init_logging(self):
-        self.log = logging.getLogger()
+        self.log = logging.getLogger("video_scoring")
         self.update_log_file()
 
     def load_last_project_layout(self):
@@ -834,7 +884,7 @@ class MainWindow(QMainWindow):
         else:
             self.load_layout(layout=self.project_settings.last_layout)
 
-    def save_settings(self, file_location=None):
+    def save_settings(self, project_file_location=None):
         # set window size and position if the central widget in not the projects widget
         self.app_settings.window_size = (
             self.width(),
@@ -853,12 +903,12 @@ class MainWindow(QMainWindow):
                 self.timeline_dw.serialize_tracks()
             )
             self.project_settings.last_layout = self.get_layout()
-            self.project_settings.save(file_location)
+            self.project_settings.save(main_win=self, file=project_file_location)
         except Exception as e:
-            self.update_status(e, logging.ERROR)
-            raise Exception(f"Failed to save project file to {file_location}")
+            self.update_status(str(e), logging.ERROR)
+            raise Exception(f"Failed to save project file to {project_file_location}")
 
-    def save_settings_as(self):
+    def save_project_as(self):
         # file dialog to select project location
         file_dialog = QtWidgets.QFileDialog()
         file_dialog.setFileMode(QtWidgets.QFileDialog.FileMode.AnyFile)
@@ -878,28 +928,74 @@ class MainWindow(QMainWindow):
             self.project_settings.file_location = file_dialog.selectedFiles()[0]
             self.update_log_file()
             self.save_settings(file_dialog.selectedFiles()[0])
+            self.projects_w.open_project_file(file_dialog.selectedFiles()[0])
+
+    def notify_wont_save(self):
+        if self.app_settings.app_crash is None:
+            return
+        msg = QtWidgets.QMessageBox()
+        msg.setWindowTitle("Something went wrong")
+        msg.setText(
+            f"""There was an error with application. 
+
+The current project has NOT BEEN OVERWRITTEN with any changes. 
+
+Instead a backup with the current changes was saved at {self.app_settings.app_crash.project_locations[0]}.
+
+The developers have been notified of this error and will work to fix it as soon as possible. If you would like to help, please submit a bug report https://github.com/DannyAlas/qt-vid-score/issues
+"""
+        )
+        msg.setIcon(QtWidgets.QMessageBox.Icon.Critical)
+        msg.exec()
+
+    def notify_last_crash(self):
+        if self.settings.app_settings.app_crash is None:
+            return
+        msg = QtWidgets.QMessageBox()
+        msg.setWindowTitle("Unexpected Exit")
+        msg.setText(
+            f"""The application unexpectedly exited.
+
+Your project was saved at {self.settings.app_settings.app_crash.project_locations[0]}.
+"""
+        )
+        msg.setIcon(QtWidgets.QMessageBox.Icon.Critical)
+        msg.exec()
+        self.projects_w.add_backup_project_file(
+            self.settings.app_settings.app_crash.project_locations[0]
+        )
+        self.settings.app_settings.app_crash = None
 
     def update_log_file(self):
-        if self.app_settings is None:
+        if self.settings.app_settings is None:
             return
-        save_dir = os.path.abspath(os.path.dirname(self.app_settings.file_location))
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
-        if not os.path.exists(os.path.join(save_dir, "log.txt")):
-            # create a new log file
-            with open(os.path.join(save_dir, "log.txt"), "w") as file:
-                file.write("")
-        log = logging.getLogger()
-        fileHandler = logging.FileHandler(f"{os.path.join(save_dir, 'log.txt')}")
-        fileHandler.setFormatter(
-            logging.Formatter(
-                "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s \n",
-                datefmt="%m/%d/%Y %I:%M:%S %p",
-            )
+        save_dir = os.path.join(
+            os.path.abspath(os.path.dirname(self.settings.app_settings.file_location)),
+            "logs",
         )
+        os.makedirs(save_dir, exist_ok=True)
+        log_file_base = os.path.join(save_dir, "log")
+        # Set up a rotating log handler
+        max_log_size = 10 * 1024 * 1024  # 10 MB
+        backup_count = 20  # keep at most 3 log files
+        log = logging.getLogger("video_scoring")
+        # Remove existing file handlers
         for handler in log.handlers:
             if isinstance(handler, logging.FileHandler):
                 log.removeHandler(handler)
+        # Create a rotating file handler
+        fileHandler = RotatingFileHandler(
+            f"{log_file_base}.txt", maxBytes=max_log_size, backupCount=backup_count
+        )
+        fileHandler.namer = (
+            lambda name: name.replace(".txt.", "_") + ".txt"
+        )  # Changes the naming pattern
+        fileHandler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s - [%(threadName)s] - [%(levelname)s] - %(message)s",
+                datefmt="%m/%d/%Y %I:%M:%S %p",
+            )
+        )
         log.addHandler(fileHandler)
         log.setLevel(self.logging_level)
         self.log = log
@@ -969,11 +1065,11 @@ class MainWindow(QMainWindow):
         about_dialog.setWindowTitle("About")
         # set custom icon scaled
         about_dialog.setIconPixmap(
-            QtGui.QPixmap(os.path.join(self.icons_dir, "icon_gray.png")).scaled(64, 64)
+            QtGui.QPixmap(self.style_sheet.get_icon_path("icon_gray.png")).scaled(
+                64, 64
+            )
         )
-        about_dialog.setWindowIcon(
-            QtGui.QIcon(os.path.join(self.icons_dir, "icon.png"))
-        )
+        about_dialog.setWindowIcon(self.style_sheet.get_static_icon("icon.png"))
         joke_thread = QThread()
         joke = JokeThread(self.app_settings.joke_type)
         joke.moveToThread(joke_thread)
@@ -1033,11 +1129,9 @@ class MainWindow(QMainWindow):
             self.save_settings()
             self.close()
         except:
-            # TODO: recovery state, if the project file fails to save, we should save the timestamp data to a csv file in either the project folder and/or the appdata folder, then set a flag in the app settings for recovery that will load the timestamp data from the csv file for the project
-            # for now have the user save the timestamp data manually
             msg = QtWidgets.QMessageBox()
             msg.setWindowTitle("CRITICAL! Failed to save project file")
-            msg.setWindowIcon(QtGui.QIcon(os.path.join(self.icons_dir, "icon.png")))
+            msg.setWindowIcon(self.style_sheet.get_static_icon("icon.png"))
             msg.setIcon(QtWidgets.QMessageBox.Icon.Critical)
             msg.setText(
                 f"""CRITICAL FAILURE! 

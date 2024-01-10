@@ -6,7 +6,6 @@ import logging
 import os
 from typing import TYPE_CHECKING
 
-from PyQt6.QtGui import QShowEvent
 from qtpy import QtCore, QtGui, QtWidgets
 
 from video_scoring.settings import ProjectSettings
@@ -82,7 +81,7 @@ class CreateProject(QtWidgets.QWidget):
             scorer=self.project_scorer.text(),
             file_location=self.project_location.text(),
         )
-        project.save()
+        project.save(main_win=self.main_win)
         # TODO: maybe check uid and location?
         if project.file_location not in [
             p[1] for p in self.main_win.app_settings.projects
@@ -295,11 +294,11 @@ class ProjectsWidget(QtWidgets.QWidget):
                 self.add_project_item(project)
                 continue
             # check if the text is in the project created date
-            if text.lower() in project.created.lower():
+            if text.lower() in str(project.created).lower():
                 self.add_project_item(project)
                 continue
             # check if the text is in the project modified date
-            if text.lower() in project.modified.lower():
+            if text.lower() in str(project.modified).lower():
                 self.add_project_item(project)
                 continue
 
@@ -332,6 +331,45 @@ class ProjectsWidget(QtWidgets.QWidget):
                 return
             self.main_win.load_project(project)
 
+    def open_project_file(self, file_path: str):
+        if not file_path.endswith(".vsap"):
+            self.main_win.update_status(
+                f"File is not a valid project file: {file_path}", logging.ERROR
+            )
+            return
+        # get the uid
+        project = ProjectSettings()
+        project.load_from_file(file_path)
+        self.main_win.load_project(project)
+
+    def import_project_file(self, file_path: str):
+        if not file_path.endswith(".vsap"):
+            self.main_win.update_status(
+                f"File is not a valid project file: {file_path}", logging.ERROR
+            )
+            return
+        # get the uid
+        project = ProjectSettings()
+        project.load_from_file(file_path)
+
+        if str(project.uid) in [str(p[0]) for p in self.main_win.app_settings.projects]:
+            # error
+            self.main_win.update_status(
+                f"Project already exists: {project.name}", logging.ERROR
+            )
+            # highlight the project in the project list
+            for i in range(self.project_list.topLevelItemCount()):
+                item = self.project_list.topLevelItem(i)
+                if item.data(0, QtCore.Qt.ItemDataRole.UserRole) == project.uid:
+                    self.project_list.setCurrentItem(item)
+                    break
+            self.add_projects()
+            return
+
+        self.main_win.app_settings.projects.append((str(project.uid), file_path))
+        self.main_win.app_settings.save()
+        self.add_projects()
+
     def import_project(self):
         # open file dialog to open a .vsap file
         file_dialog = QtWidgets.QFileDialog()
@@ -351,34 +389,7 @@ class ProjectsWidget(QtWidgets.QWidget):
         if file_dialog.exec() == QtWidgets.QDialog.DialogCode.Accepted:
             # check that the file is a .vsap file
             file_path = file_dialog.selectedFiles()[0]
-            if not file_path.endswith(".vsap"):
-                self.main_win.update_status(
-                    f"File is not a valid project file: {file_path}", logging.ERROR
-                )
-                return
-            # get the uid
-            project = ProjectSettings()
-            project.load_from_file(file_path)
-
-            if str(project.uid) in [
-                str(p[0]) for p in self.main_win.app_settings.projects
-            ]:
-                # error
-                self.main_win.update_status(
-                    f"Project already exists: {project.name}", logging.ERROR
-                )
-                # highlight the project in the project list
-                for i in range(self.project_list.topLevelItemCount()):
-                    item = self.project_list.topLevelItem(i)
-                    if item.data(0, QtCore.Qt.ItemDataRole.UserRole) == project.uid:
-                        self.project_list.setCurrentItem(item)
-                        break
-                self.add_projects()
-                return
-
-            self.main_win.app_settings.projects.append((str(project.uid), file_path))
-            self.main_win.app_settings.save()
-            self.add_projects()
+            self.import_project_file(file_path)
 
     def create_project(self):
         """Creates a project and adds it to the project list"""
@@ -394,9 +405,22 @@ class ProjectsWidget(QtWidgets.QWidget):
             uid = item.data(0, QtCore.Qt.ItemDataRole.UserRole)
             for project_t in self.main_win.app_settings.projects:
                 if str(project_t[0]) == str(uid):
+
                     self.main_win.app_settings.projects.remove(project_t)
                     self.main_win.app_settings.save()
 
+        self.add_projects()
+
+    def add_backup_project_file(self, file: str):
+        # check if the file is already in the project list
+        for project_t in self.main_win.app_settings.projects:
+            if project_t[1] == file:
+                return
+        # add the file to the project list
+        project = ProjectSettings()
+        project.load_from_file(file)
+        self.main_win.app_settings.projects.append((project.uid, file))
+        self.main_win.app_settings.save()
         self.add_projects()
 
     def add_projects(self):
@@ -422,7 +446,7 @@ class ProjectsWidget(QtWidgets.QWidget):
         item.setData(0, QtCore.Qt.ItemDataRole.UserRole, project.uid)
         # set the size hint to be 50 pixels tall
         item.setSizeHint(0, QtCore.QSize(0, 50))
-        icon = self.main_win._get_icon("vsap_file_icon.png")
+        icon = self.main_win.get_icon("vsap_file_icon.png", item)
         item.setTextAlignment(0, QtCore.Qt.AlignmentFlag.AlignCenter)
         item.setIcon(0, icon)
         item.setText(1, project.name)

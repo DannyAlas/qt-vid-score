@@ -353,7 +353,7 @@ class SettingsDockWidget(QtWidgets.QDockWidget):
         self.main_win.project_settings.key_bindings.__setattr__(
             widget.objectName(), value.toString()
         )
-        self.main_win.register_shortcut(widget.objectName(), value.toString())
+        self.main_win.register_shortcut_name(widget.objectName(), value.toString())
 
     def get_help_text(
         self,

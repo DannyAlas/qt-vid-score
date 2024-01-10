@@ -1,6 +1,7 @@
 # this the a backend for the video widget, it will provide the functionality for getting video frames.
 # we will use the opencv library to get the frames from the video
 import logging
+from calendar import c
 from typing import TYPE_CHECKING, Union
 
 import cv2
@@ -14,7 +15,7 @@ from qtpy.QtWidgets import (QApplication, QLabel, QMainWindow, QMenuBar,
 
 if TYPE_CHECKING:
     import numpy as np
-log = logging.getLogger()
+log = logging.getLogger("video_scoring")
 
 
 class VideoFile:
@@ -42,7 +43,11 @@ class VideoFile:
         """
 
         self.file_path = file_path
-        self.cap = cv2.VideoCapture(self.file_path)
+        self.cap = cv2.VideoCapture(self.file_path, cv2.CAP_FFMPEG)
+        # check if the video capture object was created
+        if not self.cap.isOpened():
+            raise Exception(f"Failed to open video file at path: {self.file_path}")
+        # self.cap.set(cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY)
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
         self.frame_count = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.duration = self.frame_count / self.fps

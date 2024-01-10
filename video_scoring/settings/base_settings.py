@@ -2,17 +2,24 @@ import datetime
 import json
 import logging
 import os
-import sys
 import zipfile
-from typing import Any, Dict, List, Literal, Tuple, TypeVar, Union
+from re import A
+from typing import (TYPE_CHECKING, Any, Dict, List, Literal, Tuple, TypeVar,
+                    Union)
 from uuid import UUID, uuid4
-import subprocess
+
 import numpy as np
 import pandas as pd
+import sentry_sdk
 from pydantic import BaseModel, Field, field_validator
 from qtpy.QtCore import QByteArray
-import sentry_sdk
-log = logging.getLogger()
+
+from video_scoring.utils import get_device_id, user_data_dir
+
+if TYPE_CHECKING:
+    from video_scoring import MainWindow
+
+log = logging.getLogger("video_scoring")
 
 uidT = TypeVar("uidT", str, UUID)
 project_file_locationT = TypeVar("project_file_locationT", str, os.PathLike)
@@ -23,67 +30,18 @@ if VERSION == "":
     raise ValueError("VERSION environment variable not set")
 
 
-def user_data_dir(file_name: Union[str, None] = None):
-    r"""
-    Get OS specific data directory path for a file in the Video Scoring application data directory. Will be version specific.
+class Message(BaseModel):
+    uid: UUID
+    message: str
+    type: Literal["message", "modal", "alert"] = "message"
+    utc_timestamp: datetime.datetime = datetime.datetime.utcnow()
 
-    Parameters
-    ----------
-    file_name: Union[str, None]
-        The name of the file to join with the data directory path, if None will return the data directory path
 
-    Returns
-    -------
-    `str`
-        Path to the data directory or the file in the data directory
-
-    Notes
-    -----
-    Typical user data directories are:
-        macOS:    ~/Library/Application Support/Video Scoring/<version>
-        Unix:     ~/.local/share/Video Scoring/<version>
-        Unix XDG:      $XDG_DATA_HOME/Video Scoring/<version>
-        Win 10:   C:\Users\<username>\AppData\Local\Video Scoring\<version>
-
-    For Unix, we follow the XDG spec and support $XDG_DATA_HOME if defined.
-    """
-    # get os specific path
-    if sys.platform.startswith("win") or sys.platform == 'cygwin' or sys.platform == 'msys':
-        os_path = os.getenv("LOCALAPPDATA")
-    elif sys.platform.startswith("darwin"):
-        os_path = "~/Library/Application Support"
-    else:
-        # linux if $XDG_DATA_HOME is defined, use it
-        os_path = os.getenv("XDG_DATA_HOME", "~/.local/share")
-
-    # join with Video Scoring dir and version
-    path = os.path.join(str(os_path), "Video Scoring", VERSION)
-    if file_name is None:
-        return path
-    else:
-        return os.path.join(path, file_name)
-
-def cmd_run(cmd):
-  try:
-    return subprocess.run(cmd, shell=True, capture_output=True, check=True, encoding="utf-8") \
-                     .stdout \
-                     .strip()
-  except:
-    return ""
-
-def get_device_id():
-
-    if sys.platform.startswith('linux'):
-        return cmd_run('cat /var/lib/dbus/machine-id') or cmd_run('cat /etc/machine-id')
-
-    if sys.platform == 'darwin':
-        return cmd_run("ioreg -d2 -c IOPlatformExpertDevice | awk -F\\\" '/IOPlatformUUID/{print $(NF-1)}'")
-
-    if sys.platform.startswith('openbsd') or sys.platform.startswith('freebsd'):
-        return cmd_run('cat /etc/hostid') or cmd_run('kenv -q smbios.system.uuid')
-
-    if sys.platform == 'win32' or sys.platform == 'cygwin' or sys.platform == 'msys':
-        return cmd_run('wmic csproduct get uuid').split('\n')[2].strip()
+class ActiveUsersMessage(BaseModel):
+    type: Literal["active_users"] = "active_users"
+    active_users: int
+    uids: list[UUID]
+    utc_timestamp: datetime.datetime = datetime.datetime.utcnow()
 
 
 class SettingsEncoder(json.JSONEncoder):
@@ -119,6 +77,8 @@ class CustomDecoder(json.JSONDecoder):
             d["mask"] = np.array(d["mask"])
         if "reference" in d:
             d["reference"] = np.array(d["reference"])
+        if "utc_timestamp" in d:
+            d["utc_timestamp"] = datetime.datetime.fromisoformat(d["utc_timestamp"])
         return d
 
 
@@ -178,7 +138,6 @@ class KeyBindings(AbstSettings):
     help: str = "H"
     save_timestamp: str = "S"
     save_unsure_timestamp: str = "Shift+S"
-    show_stats: str = "T"
     undo: str = "Ctrl+Z"
     redo: str = "Ctrl+Shift+Z"
     toggle_play: str = "Space"
@@ -192,12 +151,12 @@ class KeyBindings(AbstSettings):
     seek_to_last_frame: str = "0"
     increase_playback_speed: str = "X"
     decrease_playback_speed: str = "Z"
-    increment_selected_timestamp_by_seek_small: str = "down"
-    decrement_selected_timestamp_by_seek_small: str = "up"
-    increment_selected_timestamp_by_seek_medium: str = "shift+down"
-    decrement_selected_timestamp_by_seek_medium: str = "shift+up"
-    increment_selected_timestamp_by_seek_large: str = "ctrl+down"
-    decrement_selected_timestamp_by_seek_large: str = "ctrl+up"
+    # increment_selected_timestamp_by_seek_small: str = "down"
+    # decrement_selected_timestamp_by_seek_small: str = "up"
+    # increment_selected_timestamp_by_seek_medium: str = "shift+down"
+    # decrement_selected_timestamp_by_seek_medium: str = "shift+up"
+    # increment_selected_timestamp_by_seek_large: str = "ctrl+down"
+    # decrement_selected_timestamp_by_seek_large: str = "ctrl+up"
     move_to_last_onset_offset: str = "left"
     move_to_next_onset_offset: str = "right"
     move_to_last_timestamp: str = "Shift+left"
@@ -393,6 +352,8 @@ class BehaviorTrackSetting(BaseModel):
     name: str = ""
     color: str = "#FFFFFF"
     behavior_items: List[OOBehaviorItemSetting] = []
+    save_timestamp_key_sequence: str = ""
+    save_unsure_timestamp_key_sequence: str = ""
 
 
 class ScoringData(AbstSettings):
@@ -505,6 +466,15 @@ class Layout(BaseModel):
     dock_widgets: dict[str, DockWidgetState] = {}
 
 
+class AppCrash(BaseModel):
+    crash_uid: uidT = Field(default_factory=uuid4)
+    project_uid: Union[uidT, None] = None
+    timestamp: datetime.datetime = datetime.datetime.utcnow()
+    version: str = VERSION
+    device_id: str = get_device_id()
+    project_locations: List[str] = []
+
+
 class ProjectSettings(AbstSettings):
     """This will be an individual project within the application settings. Each project will have its own settings file."""
 
@@ -580,9 +550,11 @@ class ProjectSettings(AbstSettings):
             self.last_layout = Layout(**project_settings["last_layout"])
         self.load_default_layouts()
         sentry_sdk.add_breadcrumb(
-            category="project_settings", message=f"loaded project_settings file: {str(self.uid)} - {self.name}", level="info"
+            category="project_settings",
+            message=f"loaded project_settings file: {str(self.uid)} - {self.name}",
+            level="info",
         )
-        
+
     def load_default_layouts(self):
         if "Main" not in self.layouts:
             self.layouts["Main"] = Layout(
@@ -608,11 +580,33 @@ class ProjectSettings(AbstSettings):
                 },
             )
 
-    def save(self, file=None):
-        if file is None:
-            file = self.file_location
-        if not os.path.exists(os.path.dirname(file)):
-            os.makedirs(os.path.dirname(file))
+    def save(self, main_win: "MainWindow", file=None):
+        if file:
+            self.uid = uuid4()
+            self.file_location = file
+        # get UNHANDLED_EXCEPTION environment variable
+        if os.environ.get("UNHANDLED_EXCEPTION", "False") == "True":
+            main_win.app_settings.app_crash = AppCrash(
+                project_uid=self.uid,
+            )
+            backup_location = os.path.join(user_data_dir(), "Backups")
+            file = os.path.join(
+                backup_location,
+                f"{str(uuid4())}_{self.name}_{str(main_win.app_settings.app_crash.timestamp.strftime('%Y-%m-%d_%H-%M-%S'))}.vsap",
+            )
+            log.warning(f"Saving backup to {file}")
+            self.uid = uuid4()
+            self.file_location = file
+            self.name = f"{self.name} - Backup"
+            main_win.app_settings.app_crash.version = main_win.app_settings.version
+            main_win.app_settings.app_crash.project_locations.append(file)
+            main_win.app_settings.save()
+            try:
+                main_win.notify_wont_save()
+            except Exception as e:
+                log.error(f"Error notifying user of crash: {e}")
+        if not os.path.exists(os.path.dirname(self.file_location)):
+            os.makedirs(os.path.dirname(self.file_location))
         try:
             # set the modified date
             self.modified = datetime.datetime.now()
@@ -621,10 +615,12 @@ class ProjectSettings(AbstSettings):
             log.error(f"Error dumping project settings: {e}")
             # propagate the error
             raise e
-        with zipfile.ZipFile(file, "w") as zipf:
+        with zipfile.ZipFile(self.file_location, "w") as zipf:
             zipf.writestr("settings.json", dump)
         sentry_sdk.add_breadcrumb(
-            category="project_settings", message=f"saved project_settings file: {str(self.uid)} - {self.name}", level="info"
+            category="project_settings",
+            message=f"saved project_settings file: {str(self.uid)} - {self.name}",
+            level="info",
         )
 
 
@@ -641,6 +637,7 @@ class ApplicationSettings(AbstSettings):
     projects: List[
         Tuple[uidT, project_file_locationT]
     ] = []  # list of tuples with "uid" and "file_location"
+    app_crash: Union[None, AppCrash] = None
 
     def load(self, file_location):
         with open(file_location, "r") as f:
@@ -656,6 +653,9 @@ class ApplicationSettings(AbstSettings):
         self.window_size = tuple(project_settings.get("window_size", (1280, 720)))
         self.window_position = tuple(project_settings.get("window_position", (0, 0)))
         self.projects = [tuple(p) for p in project_settings.get("projects", ())]
+        apc = project_settings.get("app_crash", None)
+        if apc is not None:
+            self.app_crash = AppCrash(**apc)
 
     @field_validator("projects", mode="after")
     def model_validator(cls, values):
@@ -672,7 +672,9 @@ class ApplicationSettings(AbstSettings):
         with open(file_location, "w") as f:
             json.dump(self.model_dump(), f, indent=4, cls=SettingsEncoder)
         sentry_sdk.add_breadcrumb(
-            category="application_settings", message=f"saved application_settings file: {file_location}", level="info"
+            category="application_settings",
+            message=f"saved application_settings file: {file_location}",
+            level="info",
         )
         return file_location
 
