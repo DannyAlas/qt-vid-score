@@ -1,8 +1,11 @@
+import ctypes
+import logging
 import os
 import subprocess
 import sys
 from typing import Union
 
+log = logging.getLogger("video_scoring")
 VERSION = os.environ.get("VERSION", "")
 if VERSION == "":
     raise ValueError("VERSION environment variable not set")
@@ -77,3 +80,81 @@ def get_device_id():
 
     if sys.platform == "win32" or sys.platform == "cygwin" or sys.platform == "msys":
         return cmd_run("wmic csproduct get uuid").split("\n")[2].strip()
+
+
+def unicode(s: str):
+    # just in case
+    return s.encode("utf-8").decode("utf-8")
+
+
+import ctypes
+import sys
+
+
+def run_self_admin(argv=None, debug=False):
+    """
+    Run the program as an administrator.
+
+    Parameters
+    ----------
+    argv : list, optional
+        List of command-line arguments. Defaults to None.
+    debug : bool, optional
+        Flag to enable debug mode. Defaults to False.
+
+    Returns
+    -------
+    bool or None
+        True if the program is already running as an administrator,
+        False if the program failed to run as an administrator,
+        None if the program is not running as an administrator and needs to be elevated.
+    """
+    shell32 = ctypes.windll.shell32
+    if argv is None and shell32.IsUserAnAdmin():
+        return True
+
+    if argv is None:
+        argv = sys.argv
+    if hasattr(sys, "_MEIPASS"):
+        arguments = map(unicode, argv[1:])
+    else:
+        arguments = map(unicode, argv)
+    argument_line = " ".join(arguments)
+    executable = unicode(sys.executable)
+    if debug:
+        log.debug("Command line: ", executable, argument_line)
+    ret = shell32.ShellExecuteW(None, "runas", executable, argument_line, None, 1)
+    if int(ret) <= 32:
+        return False
+    return None
+
+
+def run_exe_as_admin(exe_path: str, argv: list = None):
+    """
+    Run an executable as an administrator.
+
+    Parameters
+    ----------
+    exe_path : str
+        Path to the executable to run as an administrator.
+    argv : list, optional
+        List of command-line arguments. Defaults to None.
+    debug : bool, optional
+        Flag to enable debug mode. Defaults to False.
+
+    Returns
+    -------
+    bool or None
+        True if the program is already running as an administrator,
+        False if the program failed to run as an administrator,
+        None if the program is not running as an administrator and needs to be elevated.
+    """
+    shell32 = ctypes.windll.shell32
+    log.debug("Running as admin: ", exe_path)
+    if argv is not None:
+        ret = shell32.ShellExecuteW(None, "runas", exe_path, argv, None, 1)
+    else:
+        ret = shell32.ShellExecuteW(None, "runas", exe_path, None, None, 1)
+    if int(ret) <= 32:
+        return False
+    return None

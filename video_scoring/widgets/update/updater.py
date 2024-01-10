@@ -334,8 +334,6 @@ class UpdatedDialog(QDialog):
                 (new_prj.uid, new_prj.file_location)
             )
             self.main_win.projects_w.add_projects()
-            # delete the old settings file
-            os.remove(os.path.join(os.path.dirname(user_data_dir()), "settings.json"))
             self.accept()
 
     def input_validated(self):
