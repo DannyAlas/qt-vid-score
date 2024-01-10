@@ -61,13 +61,11 @@ class TrackHeadersOptionsToolBar(QtWidgets.QToolBar):
     def fit_track_heights(self):
         """When the fit track heights button is clicked fit the track heights"""
         self.lock_sizes_action.setChecked(False)
-        # size height
         height_to_fit = self._parent.splitter.rect().height()
-        # get the number of tracks
         num_tracks = len(self._parent.track_headers)
-        # get the height of each track
+        if num_tracks == 0:
+            return
         track_height = height_to_fit / num_tracks
-        # set the height of each track
         for track_header in self._parent.track_headers:
             # position the track header
             track_header.move(
