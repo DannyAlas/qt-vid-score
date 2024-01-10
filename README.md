@@ -1,3 +1,4 @@
+![GitHub all releases](https://img.shields.io/github/downloads/DannyAlas/qt-vid-score/total?style=flat&logo=github&color=%2369b4d6)
 # Video Scoring Application
 https://github.com/DannyAlas/qt-vid-score/assets/81212794/bc15fd36-d8d4-492d-874f-b66c2580817c
 
