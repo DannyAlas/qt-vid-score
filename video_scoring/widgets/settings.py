@@ -5,14 +5,9 @@ import qdarktheme
 from qtpy import QtCore, QtGui, QtWidgets
 from qtpy.QtCore import Qt
 
-from video_scoring.settings import (
-    AbstSettings,
-    KeyBindings,
-    Playback,
-    ProjectSettings,
-    Scoring,
-    ScoringData,
-)
+from video_scoring.settings.base_settings import (AbstSettings, KeyBindings,
+                                                  Playback, ProjectSettings,
+                                                  Scoring, ScoringData)
 
 if TYPE_CHECKING:
     from main import MainWindow
@@ -206,7 +201,7 @@ class SettingsDockWidget(QtWidgets.QDockWidget):
             elif pyd_model.__class__.__name__ == "Playback":
                 settings = self.main_win.project_settings.playback
             elif pyd_model.__class__.__name__ == "Scoring":
-                settings = self.main_win.project_settings.scoring
+                settings = self.main_win.project_settings.scoring_data
             else:
                 raise ValueError(
                     f"pyd_model must be one of ProjectSettings, Playback, or Scoring, not {pyd_model.__class__.__name__}"
@@ -358,21 +353,24 @@ class SettingsDockWidget(QtWidgets.QDockWidget):
         self.main_win.project_settings.key_bindings.__setattr__(
             widget.objectName(), value.toString()
         )
-        self.main_win.register_shortcut(widget.objectName(), value.toString())
+        self.main_win.register_shortcut_name(widget.objectName(), value.toString())
 
     def get_help_text(
         self,
         pyd_model: Union[Scoring, Playback, ProjectSettings, ScoringData],
         field_name: str,
     ):
-        help_text = str(pyd_model.help_text()[field_name])
-        help_text = help_text.split(" ")
-        help_text = [
-            f"<b>{i.replace('_', ' ').title()}<b>" if i.__contains__("_") else i
-            for i in help_text
-        ]
-        # fix the above line
-        help_text = " ".join(help_text)
+        try:
+            help_text = str(pyd_model.help_text()[field_name])
+            help_text = help_text.split(" ")
+            help_text = [
+                f"<b>{i.replace('_', ' ').title()}<b>" if i.__contains__("_") else i
+                for i in help_text
+            ]
+            # fix the above line
+            help_text = " ".join(help_text)
+        except KeyError:
+            help_text = ""
         return
 
     def refresh(self):

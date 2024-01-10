@@ -1,6 +1,7 @@
 # this the a backend for the video widget, it will provide the functionality for getting video frames.
 # we will use the opencv library to get the frames from the video
 import logging
+from calendar import c
 from typing import TYPE_CHECKING, Union
 
 import cv2
@@ -8,21 +9,13 @@ import numpy as np
 from qtpy import QtGui
 from qtpy.QtCore import QMutex, QObject, Qt, QThread, QTimer, Signal, Slot
 from qtpy.QtGui import QAction, QIcon, QImage, QPixmap
-from qtpy.QtWidgets import (
-    QApplication,
-    QLabel,
-    QMainWindow,
-    QMenuBar,
-    QPushButton,
-    QSizePolicy,
-    QSlider,
-    QVBoxLayout,
-    QWidget,
-)
+from qtpy.QtWidgets import (QApplication, QLabel, QMainWindow, QMenuBar,
+                            QPushButton, QSizePolicy, QSlider, QVBoxLayout,
+                            QWidget)
 
 if TYPE_CHECKING:
     import numpy as np
-log = logging.getLogger()
+log = logging.getLogger("video_scoring")
 
 
 class VideoFile:
@@ -50,7 +43,11 @@ class VideoFile:
         """
 
         self.file_path = file_path
-        self.cap = cv2.VideoCapture(self.file_path)
+        self.cap = cv2.VideoCapture(self.file_path, cv2.CAP_FFMPEG)
+        # check if the video capture object was created
+        if not self.cap.isOpened():
+            raise Exception(f"Failed to open video file at path: {self.file_path}")
+        # self.cap.set(cv2.CAP_PROP_HW_ACCELERATION, cv2.VIDEO_ACCELERATION_ANY)
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
         self.frame_count = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.duration = self.frame_count / self.fps
@@ -114,8 +111,13 @@ class VideoCapture(QMutex):
         try:
             self.vc = self.video.cap
             self.vc.set(cv2.CAP_PROP_BUFFERSIZE, 5000)
+            self.im_format = "".join(
+                [
+                    chr((int(self.vc.get(cv2.CAP_PROP_FOURCC)) >> 8 * i) & 0xFF)
+                    for i in range(4)
+                ]
+            )
             self.updateFPS(self.getFrameRate())
-            self.vc.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"mp4v"))
 
         except Exception as e:
             self.updateStatus(f"Failed connect open file: {e}")
@@ -189,8 +191,11 @@ class VideoPlayer(QObject):
         super(VideoPlayer, self).__init__()
         self.signals = VideoPlayerSignals()
         self.play_timer = None
-        self.paused = False
+        self.paused = True
         self.started = False
+        self.loop = False
+        self.loop_start = 0
+        self.loop_end = 0
         if video_file is not None:
             self.startPlayer(video_file)
 
@@ -223,9 +228,13 @@ class VideoPlayer(QObject):
     def get_play_frame(self):
         if not self.started:
             return
-        self.vc.lock()
-        self.signals.frame.emit(self.vc.get_frame(), self.vc.frame_num)
-        self.vc.unlock()
+        # if we're looping and we're at the end of the loop, seek to the beginning
+        if self.loop and self.vc.frame_num >= self.loop_end:
+            self.seek(self.loop_start)
+        else:
+            self.vc.lock()
+            self.signals.frame.emit(self.vc.get_frame(), self.vc.frame_num)
+            self.vc.unlock()
 
     def seek(self, frame_num: int):
         """Seek to a frame number"""

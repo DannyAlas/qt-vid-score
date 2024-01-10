@@ -9,129 +9,12 @@ if TYPE_CHECKING:
     from video_scoring import MainWindow
 
 
-class OnsetOffset(dict):
-    """
-    Represents a dictionary of onset and offset frames. Provides methods to add a new entry with checks for overlap. Handels sorting.
-
-    Notes
-    -----
-    The Key is the onset frame and the value is a dict with the keys "offset", "sure", and "notes". The value of "offset" is the offset frame. The value of "sure" is a bool indicating if the onset-offset pair is sure. The value of "notes" is a string.
-
-    We only store frames in the dict. The conversion to a time is handled by the UI. We will always store the onset and offset as frames.
-
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._onset_offset = {}
-
-    def __setitem__(self, key, value):
-        # check if the key is a frame number
-        if not isinstance(key, int):
-            raise TypeError("The key must be an integer")
-
-        # check if the value is a dict
-        if not isinstance(value, dict):
-            raise TypeError("The value must be a dict")
-
-        # check if the value has the correct keys
-        if not all(key in value.keys() for key in ["offset", "sure", "notes"]):
-            raise ValueError(
-                'The value must have the keys "offset", "sure", and "notes"'
-            )
-
-        # check if the offset is a frame number
-        if value["offset"] is not None and not isinstance(value["offset"], int):
-            raise TypeError("The offset must be an integer or None")
-
-        # check if sure is a bool
-        if not isinstance(value["sure"], bool):
-            raise TypeError("The sure value must be a bool")
-
-        # check if notes is a string
-        if not isinstance(value["notes"], str):
-            raise TypeError("The notes value must be a string")
-
-        # check if the onset is already in the dict
-        if key in self._onset_offset.keys():
-            raise ValueError("The onset is already in the dict")
-
-    def add_onset(self, onset, offset=None, sure=None, notes=None):
-        # check if the onset is already in the dict
-        if onset in self._onset_offset.keys():
-            raise ValueError("The onset is already in the dict")
-
-        # check if the offset is a frame number
-        if offset is not None and not isinstance(offset, int):
-            raise TypeError("The offset must be an integer or None")
-
-        # check if sure is a bool
-        if sure is not None and not isinstance(sure, bool):
-            raise TypeError("The sure value must be a bool")
-
-        # check if notes is a string
-        if notes is not None and not isinstance(notes, str):
-            raise TypeError("The notes value must be a string")
-
-        # check for overlap
-        self._check_overlap(onset=onset, offset=offset)
-
-        # sort dict by onset
-        self._onset_offset = dict(
-            sorted(self._onset_offset.items(), key=lambda x: x[0])
-        )
-
-    def _check_overlap(self, onset, offset=None):
-        """
-        Check if the provided onset and offset times overlap with any existing ranges.
-
-        Parameters
-        ----------
-        onset : int
-            The onset frame.
-        offset : int, optional
-            The offset frame, by default None.
-
-        Raises
-        ------
-        ValueError
-            If there is an overlap.
-        """
-
-        # If we are adding a new onset, check if it will overlap with any existing onset - offset ranges
-        if offset is None:
-            for n_onset, entry in self._onset_offset.items():
-                # some entries may not have an offset yet
-                if entry["offset"] is None:
-                    continue
-                if onset >= n_onset and onset <= entry["offset"]:
-                    raise ValueError(
-                        f"The provided onset time of {onset} overlaps with an existing range: {n_onset} - {entry['offset']}"
-                    )
-
-        if offset is not None:
-            if offset <= onset:
-                raise ValueError(
-                    f"The provided offset frame of {offset} is before the onset frame of {onset}"
-                )
-            for onset, entry in self._onset_offset.items():
-                # some entries may not have an offset yet
-                if entry["offset"] is None:
-                    continue
-                if offset >= onset and offset <= entry["offset"]:
-                    raise ValueError(
-                        f"The provided offset time of {offset} overlaps with an existing range: {onset} - {entry['offset']}"
-                    )
-
-
 class customTableWidget(QtWidgets.QTableWidget):
     """A a custom table widget that adds a border around selected rows"""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.setSelectionBehavior(
-            QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows
-        )
+        self.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.NoSelection)
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
 
     def selectionChanged(self, selected, deselected):
@@ -191,9 +74,8 @@ class TsWidget(QtWidgets.QWidget):
         # UI Elements
         self.setWindowTitle("Video Behavior Tracker")
         self.layout = QtWidgets.QVBoxLayout()
-
         # Table to display timestamps
-        self.table = customTableWidget(0, 4)
+        self.table = customTableWidget(0, 2)
         self.table.setHorizontalHeaderLabels(["Onset", "Offset"])
         self.table.horizontalHeader().setSectionResizeMode(
             QtWidgets.QHeaderView.ResizeMode.Stretch
@@ -224,20 +106,17 @@ class TsWidget(QtWidgets.QWidget):
             return
         # if the item is in the onset column, move the playhead to the onset
         if item[0].column() == 0:
-            self.main_win.timeline_dw.timeline_view.move_playhead_to_frame(
-                int(item[0].text())
-            )
+            self.main_win.video_player_dw.seek(int(item[0].text()))
         # if the item is in the offset column, move the playhead to the offset
         elif item[0].column() == 1:
-            self.main_win.timeline_dw.timeline_view.move_playhead_to_frame(
-                int(item[0].text())
-            )
+            self.main_win.video_player_dw.seek(int(item[0].text()))
 
     def update(self):
         """Update the table with the timestamps"""
         # clear the table
         if len(self.main_win.timeline_dw.timeline_view.behavior_tracks) == 0:
             return
+        # get the track name to save on from the timeline
         ts_behaviors = self.main_win.timeline_dw.timeline_view.behavior_tracks[
             self.ts_dw.behavior_track_combo.currentIndex()
         ].behavior_items
@@ -254,6 +133,11 @@ class TsWidget(QtWidgets.QWidget):
             # add the offset to the table
             offset_item = QtWidgets.QTableWidgetItem(str(item.offset))
             self.table.setItem(self.table.rowCount() - 1, 1, offset_item)
+            # add data to the onset for it unsure
+            onset_item.setData(QtCore.Qt.ItemDataRole.UserRole, item.unsure)
+            if item.unsure:
+                onset_item.setBackground(QtGui.QColor("#cc8e47"))
+                offset_item.setBackground(QtGui.QColor("#cc8e47"))
             # scroll to the item if it has changed from the previous update
             if len(tb_onsets) == 0 or len(tb_offsets) == 0:
                 self.table.scrollToItem(onset_item)
@@ -266,6 +150,8 @@ class TimeStampsDockwidget(QtWidgets.QDockWidget):
         super().__init__(parent)
         self.setWindowTitle("Time Stamps")
         self.setAttribute(QtCore.Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self.context_menu)
         self.main_win = main_win
         self.main_widget = QtWidgets.QWidget()
         self.setWidget(self.main_widget)
@@ -282,9 +168,8 @@ class TimeStampsDockwidget(QtWidgets.QDockWidget):
         self.main_layout.addWidget(self.toolbar)
 
         # add a save button
-        self.save_act = QtWidgets.QAction(
-            self.main_win._get_icon("diskette.png"), "Save", self
-        )
+        self.save_act = QtWidgets.QAction("Save", self)
+        self.save_act.setIcon(self.main_win.get_icon("diskette.png", self.save_act))
         self.save_act.triggered.connect(self.save)
         self.toolbar.addAction(self.save_act)
         # add dropdown to select the behavior track
@@ -299,9 +184,8 @@ class TimeStampsDockwidget(QtWidgets.QDockWidget):
         )
         self.toolbar.addWidget(spacer)
         # add an update button
-        self.update_act = QtWidgets.QAction(
-            self.main_win._get_icon("refresh.svg", svg=True), "Refresh", self
-        )
+        self.update_act = QtWidgets.QAction("Refresh", self)
+        self.update_act.setIcon(self.main_win.get_icon("refresh.svg", self.update_act))
         self.update_act.triggered.connect(self.refresh)
         self.toolbar.addAction(self.update_act)
 
@@ -309,16 +193,48 @@ class TimeStampsDockwidget(QtWidgets.QDockWidget):
         self.main_layout.addWidget(self.table_widget)
         self.main_win.loaded.connect(self.init_connections)
 
+    def context_menu(self, pos):
+        menu = QtWidgets.QMenu()
+        # get the text of the first column of the selected row
+        row = self.table_widget.table.currentRow()
+        if row == -1:
+            return
+        onset = self.table_widget.table.item(row, 0).text()
+
+        # get the item from the timeline
+        track = self.main_win.timeline_dw.timeline_view.get_track_from_name(
+            self.behavior_track_combo.currentText()
+        )
+        if track is not None:
+            item = track.get_item(int(onset))
+            if item is not None:
+                # get the context menu from the item and add it to the menu
+                itm_ctx = item.get_context_menu()
+                if itm_ctx is not None:
+                    for act in itm_ctx.actions():
+                        menu.addAction(act)
+        menu.exec(self.mapToGlobal(pos))
+
     def init_connections(self):
-        self.main_win.timeline_dw.timeline_view.behavior_tracks_changed.connect(
+        self.main_win.timeline_dw.timeline_view.track_name_to_save_on_changed.connect(
             self.update_tracks
         )
         self.update()
 
     def update_tracks(self):
         self.behavior_track_combo.clear()
+        if len(self.main_win.timeline_dw.timeline_view.behavior_tracks) == 0:
+            self.table_widget.table.clearContents()
+            self.table_widget.table.setRowCount(0)
+            return
         for track in self.main_win.timeline_dw.timeline_view.behavior_tracks:
             self.behavior_track_combo.addItem(track.name)
+        # set the current index to the item whith the name of the track to save on
+        self.behavior_track_combo.setCurrentIndex(
+            self.behavior_track_combo.findText(
+                self.main_win.timeline_dw.timeline_view.track_name_to_save_on
+            )
+        )
 
     def update(self):
         self.table_widget.update()
@@ -339,46 +255,18 @@ class TimeStampsDockwidget(QtWidgets.QDockWidget):
         if file_path == "":
             return
         # save the file path
-        self.main_win.project_settings.timestamp_file_location = file_path
+        self.main_win.project_settings.scoring_data.timestamp_file_location = file_path
         # save the table
         with open(file_path, "w") as f:
             # write the header
-            f.write("Onset,Offset\n")
+            f.write("Onset,Offset,Unsure\n")
             # write the data
             for row in range(self.table_widget.table.rowCount()):
                 onset = self.table_widget.table.item(row, 0).text()
                 offset = self.table_widget.table.item(row, 1).text()
-                f.write(f"{onset},{offset}\n")
+                unsure = self.table_widget.table.item(row, 0).data(
+                    QtCore.Qt.ItemDataRole.UserRole
+                )
+                f.write(f"{onset},{offset},{unsure}\n")
         # show a message box
         self.main_win.statusBar().showMessage(f"Saved timestamps to {file_path}")
-
-    def load_from_csv(self, file_path):
-        """Load timestamps from a csv file"""
-        # load the file
-        with open(file_path, "r") as f:
-            # skip the header
-            f.readline()
-            # read the data
-            data = f.readlines()
-        # if the first line contains "Onset,Offset", skip it
-        if data[0].strip() == "Onset,Offset":
-            data = data[1:]
-        # clear the table
-        self.table_widget.table.clearContents()
-        self.table_widget.table.setRowCount(0)
-        # add the data to the table
-        for line in data:
-            onset, offset = line.strip().split(",")
-            self.table_widget.table.insertRow(self.table_widget.table.rowCount())
-            onset_item = QtWidgets.QTableWidgetItem(onset)
-            self.table_widget.table.setItem(
-                self.table_widget.table.rowCount() - 1, 0, onset_item
-            )
-            offset_item = QtWidgets.QTableWidgetItem(offset)
-            self.table_widget.table.setItem(
-                self.table_widget.table.rowCount() - 1, 1, offset_item
-            )
-        # save the file path
-        self.main_win.project_settings.timestamp_file_location = file_path
-        # show a message box
-        self.main_win.statusBar().showMessage(f"Loaded timestamps from {file_path}")
