@@ -645,7 +645,7 @@ class ApplicationSettings(AbstSettings):
         if project_settings is None:
             return
 
-        self.version = project_settings.get("version", "")
+        self.version = VERSION
         self.device_id = get_device_id()
         self.file_location = project_settings.get("file_location", "")
         self.theme = project_settings.get("theme", "dark")
