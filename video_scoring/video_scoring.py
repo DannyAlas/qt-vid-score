@@ -316,7 +316,7 @@ class MainWindow(QMainWindow):
     def _run_installer(self):
         # if we're on windows, run the installer
         import sys  # lazy import
-        from utils import run_exe_as_admin
+        from video_scoring.utils import run_exe_as_admin
 
         if not sys.platform.startswith("win"):
             self.update_status(f"{sys.platform} is not supported", logging.ERROR)
@@ -332,7 +332,7 @@ class MainWindow(QMainWindow):
         if not os.path.exists(installer_file):
             self.update_status("Installer not found", logging.ERROR)
             return
-        run_exe_as_admin(installer_file, shell=True)
+        run_exe_as_admin(installer_file)
         self.close()
 
     def get_icon(self, icon_name: str, request_object: QtCore.QObject) -> "DynamicIcon":
