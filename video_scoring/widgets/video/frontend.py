@@ -270,7 +270,7 @@ class VideoWidget(QWidget):
                 )
 
             # center the video display
-            self.video_display.move(
+            self.video_display.
                 int((self.width() - self.video_display.width()) / 2),
                 int((self.height() - self.video_display.height()) / 2),
             )

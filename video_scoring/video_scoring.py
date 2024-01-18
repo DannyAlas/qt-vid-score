@@ -597,10 +597,10 @@ class MainWindow(QMainWindow):
         # if the main window is outside of the visible screen, move it to the center
         if not self.is_pos_visible((self.x(), self.y())):
             self.move(
-                QtWidgets.QApplication.screens()[0].geometry().width() / 2
-                - self.width() / 2,
-                QtWidgets.QApplication.screens()[0].geometry().height() / 2
-                - self.height() / 2,
+                int(QtWidgets.QApplication.screens()[0].geometry().width() / 2
+                - self.width() / 2),
+                int(QtWidgets.QApplication.screens()[0].geometry().height() / 2
+                - self.height() / 2),
             )
 
         self.restoreState(base64.b64decode(layout.dock_state), 1)
@@ -619,8 +619,8 @@ class MainWindow(QMainWindow):
                 (window_dock_widget.pos().x(), window_dock_widget.pos().y())
             ):
                 window_dock_widget.move(
-                    self.width() / 2 - window_dock_widget.width() / 2,
-                    self.height() / 2 - window_dock_widget.height() / 2,
+                    int(self.width() / 2 - window_dock_widget.width() / 2),
+                    int(self.height() / 2 - window_dock_widget.height() / 2),
                 )
 
     def delete_layout_dialog(self):
