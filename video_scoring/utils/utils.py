@@ -8,7 +8,7 @@ from typing import Union
 log = logging.getLogger("video_scoring")
 VERSION = os.environ.get("VERSION", "")
 if VERSION == "":
-    raise ValueError("VERSION environment variable not set")
+    log.error("VERSION environment variable not set")
 
 
 def user_data_dir(file_name: Union[str, None] = None):

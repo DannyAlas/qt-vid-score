@@ -1,8 +1,3 @@
-# this is a class that is used to update the application
-# it will look for the latest release on github and compare it to the current version
-# if it finds a newer version, it will ask the user if they want to update
-# if they do, it will download the latest release into a temporary directory and run the installer
-
 import json
 import os
 from typing import TYPE_CHECKING
@@ -11,7 +6,7 @@ import markdown2
 import requests
 from qtpy import QtCore, QtWidgets
 from qtpy.QtCore import Qt, QThread, Signal
-from qtpy.QtWidgets import QDialog, QMainWindow, QPushButton
+from qtpy.QtWidgets import QDialog, QPushButton
 
 from video_scoring.settings.base_settings import user_data_dir
 from video_scoring.settings.settings import Settings

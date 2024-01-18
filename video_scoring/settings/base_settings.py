@@ -27,7 +27,7 @@ dtT = TypeVar("dtT", datetime.datetime, str)
 
 VERSION = os.environ.get("VERSION", "")
 if VERSION == "":
-    raise ValueError("VERSION environment variable not set")
+    log.error("VERSION environment variable not set")
 
 
 class Message(BaseModel):
