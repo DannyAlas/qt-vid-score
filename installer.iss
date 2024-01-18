@@ -2,7 +2,7 @@
 ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING INNO SETUP SCRIPT FILES!
 
 #define MyAppName "Video Scoring"
-#define MyAppVersion "0.2.3"
+#define MyAppVersion "0.2.4"
 #define MyAppPublisher "Daniel Alas"
 #define MyAppURL "https://github.com/DannyAlas/qt-vid-score"
 #define MyAppExeName "Video Scoring.exe"
