@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from typing import TYPE_CHECKING
 
@@ -8,12 +9,15 @@ from qtpy import QtCore, QtWidgets
 from qtpy.QtCore import Qt, QThread, Signal
 from qtpy.QtWidgets import QDialog, QPushButton
 
+from video_scoring import settings
 from video_scoring.settings.base_settings import user_data_dir
 from video_scoring.settings.settings import Settings
 from video_scoring.widgets.progress import ProgressSignals
 
 if TYPE_CHECKING:
     from video_scoring import MainWindow
+
+log = logging.getLogger("video_scoring")
 
 
 class UpdateCheck(QThread):
@@ -43,8 +47,10 @@ class UpdateCheck(QThread):
             latest_version = tuple(map(int, latest_version.split(".")))
             current_version = tuple(map(int, VERSION.split(".")))
             if latest_version > current_version:
+                log.info(f"Update available: {data}")
                 self.update_available.emit(data)
             else:
+                log.info("No update available")
                 self.no_update.emit()
         except Exception as e:
             self.update_error.emit(f"Error checking for update: {e}")
@@ -203,20 +209,15 @@ class Updater(QThread):
 class UpdatedDialog(QDialog):
     def __init__(self, version: str, main_win: "MainWindow", parent=None):
         super().__init__(parent)
+        self.resize(QtCore.QSize(300, 200))
+        self.setModal(True)
         self.setWindowTitle("Update Complete")
         self.version = version
         self.main_win = main_win
-        old_settings_file = os.path.join(
-            os.path.dirname(user_data_dir()), "settings.json"
-        )
-        if os.path.exists(old_settings_file):
-            with open(str(old_settings_file), "r") as file:
-                old_settings = json.load(file)
-            self._populate_migration_explanation(old_settings)
-        else:
-            self._populate_updated()
+        self.populate_updated()
+        self.migrate_settings()
 
-    def _populate_updated(self):
+    def populate_updated(self):
         self.body = QtWidgets.QTextBrowser()
         self.body.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
         self.body.setOpenExternalLinks(True)
@@ -236,8 +237,8 @@ class UpdatedDialog(QDialog):
         self.accept_button.clicked.connect(self.accept)
         self.accept_button.setMinimumSize(QtCore.QSize(60, 20))
         self.button_layout = QtWidgets.QHBoxLayout()
-        self.button_layout.addWidget(self.accept_button)
         self.button_layout.addStretch()
+        self.button_layout.addWidget(self.accept_button)
         self.button_layout.setContentsMargins(10, 10, 10, 10)
         self.button_layout.setAlignment(Qt.AlignmentFlag.AlignRight)
 
@@ -271,92 +272,24 @@ class UpdatedDialog(QDialog):
         else:
             return ""
 
-    def _populate_migration_explanation(self, old_settings: dict):
-        self.explanation = QtWidgets.QLabel()
-        self.explanation.setTextFormat(QtCore.Qt.TextFormat.RichText)
-        self.explanation.setText(self.populate_explanation())
-
-        self.project_name_label = QtWidgets.QLabel("Project Name")
-        self.project_name = QtWidgets.QLineEdit()
-        self.project_name.setPlaceholderText(
-            old_settings.get("project_name", "Project Name")
+    def migrate_settings(self):
+        settings_dir = os.path.dirname(user_data_dir())
+        settings_versions = sorted(
+            [
+                os.path.join(settings_dir, f)
+                for f in os.listdir(settings_dir)
+                if os.path.isdir(os.path.join(settings_dir, f))
+            ]
         )
-
-        self.file_location_label = QtWidgets.QLabel("Project File Location")
-        self.file_location = QtWidgets.QLineEdit()
-        self.file_location.setPlaceholderText(
-            old_settings.get("settings_file_location", "Project File Location")
+        # iterate backwards through the list until we find a version that is not the current version which has a settings file
+        previous_version = ""
+        for version in reversed(settings_versions):
+            if os.path.exists(os.path.join(version, "settings.json")):
+                if os.path.basename(version) != self.version:
+                    previous_version = version
+                    break
+        # get the settings file from the previous version
+        self.main_win.app_settings.migrate(
+            os.path.join(previous_version, "settings.json")
         )
-        self.file_location.mousePressEvent = lambda _: self.file_location.setText(
-            self.get_file_location(self.file_location.text())
-        )
-
-        self.button_box = QtWidgets.QDialogButtonBox()
-        self.button_box.setStandardButtons(
-            QtWidgets.QDialogButtonBox.StandardButton.Ok
-            | QtWidgets.QDialogButtonBox.StandardButton.Cancel
-        )
-        self.button_box.button(QtWidgets.QDialogButtonBox.StandardButton.Ok).setText(
-            "Import"
-        )
-        self.button_box.button(
-            QtWidgets.QDialogButtonBox.StandardButton.Cancel
-        ).setText("Don't Import")
-        self.button_box.accepted.connect(lambda: self.import_old_settings(old_settings))
-        self.button_box.rejected.connect(self.reject)
-
-        self.layout = QtWidgets.QGridLayout()
-        self.layout.addWidget(self.explanation, 0, 0, 1, 2)
-        self.layout.addWidget(self.project_name_label, 1, 0)
-        self.layout.addWidget(self.project_name, 1, 1)
-        self.layout.addWidget(self.file_location_label, 2, 0)
-        self.layout.addWidget(self.file_location, 2, 1)
-        self.layout.addWidget(self.button_box, 3, 0, 1, 2)
-        self.layout.setContentsMargins(10, 10, 10, 10)
-        self.setLayout(self.layout)
-
-    def import_old_settings(self, old_settings):
-
-        self.project_name.setStyleSheet("")
-        self.file_location.setStyleSheet("")
-        if self.input_validated():
-            new_prj = Settings(self.main_win).migrate_from_old_settings(
-                old_settings=old_settings,
-                new_name=self.project_name.text(),
-                new_location=self.file_location.text(),
-            )
-            self.main_win.app_settings.projects.append(
-                (new_prj.uid, new_prj.file_location)
-            )
-            self.main_win.projects_w.add_projects()
-            self.accept()
-
-    def input_validated(self):
-        if self.project_name.text() == "":
-            self.project_name.setStyleSheet("border: 1px solid red;")
-            return False
-        if self.file_location.text() == "":
-            self.file_location.setStyleSheet("border: 1px solid red;")
-            return False
-        if not os.path.exists(os.path.dirname(self.file_location.text())):
-            self.file_location.setStyleSheet("border: 1px solid red;")
-            return False
-        return True
-
-    def populate_explanation(self):
-        return f"""<h1>🌟 Update Complete!</h1>
-<h2>
-    ✨ You are now running version {self.version}.
-</h2>
-<p>
-    <a href="https://github.com/DannyAlas/qt-vid-score/releases/latest">View the changelog</a>
-</p>
----
-<h3>
-    We found a settings file that uses the old projects format. 
-</h3>
-<h3>
-    To import it please give it a name and location
-</h3>
-</br>
-"""
+        self.main_win.projects_w.add_projects()

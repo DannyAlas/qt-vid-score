@@ -657,6 +657,21 @@ class ApplicationSettings(AbstSettings):
         if apc is not None:
             self.app_crash = AppCrash(**apc)
 
+    def migrate(self, old_file):
+        with open(old_file, "r") as f:
+            project_settings = json.load(f)
+        if project_settings is None:
+            return
+
+        self.version = VERSION
+        self.device_id = get_device_id()
+        self.theme = project_settings.get("theme", "dark")
+        self.joke_type = project_settings.get("joke_type", "programming")
+        self.window_size = tuple(project_settings.get("window_size", (1280, 720)))
+        self.window_position = tuple(project_settings.get("window_position", (0, 0)))
+        self.projects = [tuple(p) for p in project_settings.get("projects", ())]
+        self.save()
+
     @field_validator("projects", mode="after")
     def model_validator(cls, values):
         for project in values["projects"]:
