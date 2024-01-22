@@ -3,7 +3,7 @@ import re
 from dotenv import load_dotenv
 
 load_dotenv()
-pyins = r'python -m PyInstaller --noconfirm --log-level=WARN --windowed --name "Video Scoring" --add-data="video_scoring/resources/;video_scoring/resources/" --add-data="video_scoring/resources/dark/;video_scoring/resources/dark/"  --hidden-import qtpy --icon="..\resources\icon_gray.ico" main.py'
+pyins = r'python -m PyInstaller --noconfirm --clean --log-level=WARN --windowed --name "Video Scoring" --add-data="video_scoring/resources/;video_scoring/resources/" --add-data="video_scoring/resources/dark/;video_scoring/resources/dark/"  --hidden-import qtpy --icon="..\resources\icon_gray.ico" main.py'
 
 
 def replace_env_var(match: re.Match):
