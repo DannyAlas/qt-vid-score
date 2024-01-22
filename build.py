@@ -1,5 +1,7 @@
 import os
 import re
+import subprocess
+from turtle import st
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -67,7 +69,30 @@ def run_installer():
     iscc_path = (
         r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe"  # change this to your path
     )
-    os.system(f'"{iscc_path}" installer.iss')
+    cmd = f'"{iscc_path}" installer.iss'
+    res = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    lines = []
+    while res.poll() is None:
+        line = res.stdout.readline().decode()
+        lines.append(line)
+        print(line, end="")
+    # get the output file name from the output it will be the last non-empty line
+    output_file_path = ""
+    for line in reversed(lines):
+        line = line.strip()
+        if line:
+            output_file_path = line
+            break
+    output_file_path = os.path.normpath(output_file_path)
+    output_file = os.path.join(
+        os.path.dirname(output_file_path),
+        os.path.basename(output_file_path).replace(" ", "."),
+    )
+    if os.path.exists(output_file):
+        os.remove(output_file)
+    os.rename(output_file_path, output_file)
+    # create hash
+    os.system(f'certutil -hashfile "{output_file}" MD5')
 
 
 if __name__ == "__main__":
