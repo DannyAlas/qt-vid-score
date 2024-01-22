@@ -1,4 +1,4 @@
-VERSION = "0.2.4"
+VERSION = "0.2.5"
 import argparse
 import logging
 import os
