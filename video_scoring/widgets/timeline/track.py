@@ -142,7 +142,7 @@ class BehaviorTrack(QGraphicsRectItem):
                 if offset - 1 >= other_onset and offset <= other_item.offset:
                     return True
                 # if we encompass another item, don't update the onset or offset
-                if onset <= other_onset and offset >= other_item.offset:
+                if item.onset <= other_onset and offset >= other_item.offset:
                     return True
         return False
 
