@@ -520,7 +520,7 @@ class ProjectSettings(AbstSettings):
         if file is None:
             file = self.file_location
         if not os.path.exists(file):
-            log.error(f"File {file} does not exist")
+            log.info(f"File {file} does not exist")
             raise FileNotFoundError(f"File {file} does not exist")
 
         with zipfile.ZipFile(file, "r") as zipf:
@@ -528,7 +528,7 @@ class ProjectSettings(AbstSettings):
                 project_settings = json.load(f, cls=CustomDecoder)
 
         if project_settings is None:
-            log.error(f"File {file} is empty")
+            log.info(f"File {file} is empty")
             raise ValueError(f"File {file} is empty")
         self.uid = project_settings.get("uid", "")
         self.name = project_settings.get("name", "")

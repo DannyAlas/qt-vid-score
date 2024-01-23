@@ -29,7 +29,11 @@ class Settings:
         for project_t in self.app_settings.projects:
             if str(project_t[0]) == str(uid):
                 project = ProjectSettings()
-                project.load_from_file(project_t[1])
+                try:
+                    project.load_from_file(project_t[1])
+                except FileNotFoundError:
+                    log.warning(f"Project file not found: {project_t[1]}")
+                    continue
                 return project
 
     def load_settings_file(self, file_location: Optional[str] = None):

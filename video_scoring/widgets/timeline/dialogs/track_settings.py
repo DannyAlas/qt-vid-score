@@ -100,7 +100,7 @@ class TrackSettingsDialog(QtWidgets.QDialog):
         except Exception as e:
             # notify the user that the shortcut is already taken
             self._parent.timeline.main_window.update_status(
-                f"{e}", do_log=False, log_level=logging.ERROR, display_error=True
+                f"{e}", do_log=False, log_level=logging.WARN, display_error=True
             )
             # color the shortcut edit red
             self.shortcut_edit.setKeySequence(self.track.save_ts_ks)

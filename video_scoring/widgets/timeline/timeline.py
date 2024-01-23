@@ -794,7 +794,7 @@ class TimelineDockWidget(QDockWidget):
         self, name: str, onset_offset_unsure: list[tuple[int, int, bool]]
     ):
         if len(onset_offset_unsure) == 0:
-            self.main_win.update_status("No timestamps passed", logging.ERROR)
+            self.main_win.update_status("No timestamps passed", logging.WARN)
             return
         try:
             track = self.timeline_view.add_behavior_track(name)

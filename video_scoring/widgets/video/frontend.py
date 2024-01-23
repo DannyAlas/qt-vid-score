@@ -788,7 +788,6 @@ class VideoPlayerDockWidget(QDockWidget):
     def seek_to_first_frame(self):
         if self.video_widget.play_worker is None:
             return
-        self.main_win.update_status("Seeking to first frame", logging.ERROR)
         self.seek(0)
 
     def seek_to_last_frame(self):

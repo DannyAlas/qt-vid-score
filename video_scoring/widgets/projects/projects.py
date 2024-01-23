@@ -4,6 +4,7 @@ This is a projects dock widget. It will list the current projects in a tree view
 
 import logging
 import os
+from tkinter import E
 from typing import TYPE_CHECKING
 
 from qtpy import QtCore, QtGui, QtWidgets
@@ -172,15 +173,21 @@ class ProjectTree(QtWidgets.QTreeWidget):
             file = file.toLocalFile()
             if not file.endswith(".vsap"):
                 self.main_win.update_status(
-                    f"File is not a valid project file: {file}", logging.ERROR
+                    f"File is not a valid project file: {file}", logging.WARN
                 )
                 continue
                 # get the uid
             project = ProjectSettings()
-            project.load_from_file(file)
+            try:
+                project.load_from_file(file)
+            except Exception as e:
+                self.main_win.update_status(
+                    f"Failed to load project: {file}\n\t{e}", logging.WARN
+                )
+                continue
             if project.uid in [p[0] for p in self.main_win.app_settings.projects]:
                 self.main_win.update_status(
-                    f"Project already exists: {project.name}", logging.ERROR
+                    f"Project already exists: {project.name}", logging.WARN
                 )
                 continue
             self.main_win.app_settings.projects.append((project.uid, file))
@@ -284,7 +291,13 @@ class ProjectsWidget(QtWidgets.QWidget):
         # loop through the projects
         for project_t in self.main_win.app_settings.projects:
             project = ProjectSettings()
-            project.load_from_file(project_t[1])
+            try:
+                project.load_from_file(project_t[1])
+            except Exception as e:
+                self.main_win.update_status(
+                    f"Failed to load project: {project_t[1]}\n\t{e}", logging.WARN
+                )
+                continue
             # check if the text is in the project name
             if text.lower() in project.name.lower():
                 self.add_project_item(project)
@@ -321,12 +334,12 @@ class ProjectsWidget(QtWidgets.QWidget):
                 project = self.main_win.settings.get_project(uid)
             except Exception as e:
                 self.main_win.update_status(
-                    f"Failed to load project: {uid}\n\t{e}", logging.ERROR
+                    f"Failed to load project: {uid}\n\t{e}", logging.WARN
                 )
                 return
             if project is None:
                 self.main_win.update_status(
-                    "Project not found", logging.ERROR, display_error=True
+                    "Project not found", logging.WARNING, display_error=True
                 )
                 return
             self.main_win.load_project(project)
@@ -334,28 +347,40 @@ class ProjectsWidget(QtWidgets.QWidget):
     def open_project_file(self, file_path: str):
         if not file_path.endswith(".vsap"):
             self.main_win.update_status(
-                f"File is not a valid project file: {file_path}", logging.ERROR
+                f"File is not a valid project file: {file_path}", logging.WARN
             )
             return
         # get the uid
         project = ProjectSettings()
-        project.load_from_file(file_path)
+        try:
+            project.load_from_file(file_path)
+        except Exception as e:
+            self.main_win.update_status(
+                f"Failed to load project: {file_path}\n\t{e}", logging.WARN
+            )
+            return
         self.main_win.load_project(project)
 
     def import_project_file(self, file_path: str):
         if not file_path.endswith(".vsap"):
             self.main_win.update_status(
-                f"File is not a valid project file: {file_path}", logging.ERROR
+                f"File is not a valid project file: {file_path}", logging.WARN
             )
             return
         # get the uid
         project = ProjectSettings()
-        project.load_from_file(file_path)
+        try:
+            project.load_from_file(file_path)
+        except Exception as e:
+            self.main_win.update_status(
+                f"Failed to load project: {file_path}\n\t{e}", logging.WARN
+            )
+            return
 
         if str(project.uid) in [str(p[0]) for p in self.main_win.app_settings.projects]:
             # error
             self.main_win.update_status(
-                f"Project already exists: {project.name}", logging.ERROR
+                f"Project already exists: {project.name}", logging.WARN
             )
             # highlight the project in the project list
             for i in range(self.project_list.topLevelItemCount()):
@@ -418,7 +443,13 @@ class ProjectsWidget(QtWidgets.QWidget):
                 return
         # add the file to the project list
         project = ProjectSettings()
-        project.load_from_file(file)
+        try:
+            project.load_from_file(file)
+        except Exception as e:
+            self.main_win.update_status(
+                f"Failed to load project: {file}\n\t{e}", logging.WARN
+            )
+            return
         self.main_win.app_settings.projects.append((project.uid, file))
         self.main_win.app_settings.save()
         self.add_projects()
