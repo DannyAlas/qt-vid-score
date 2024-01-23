@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import TYPE_CHECKING, Optional
 from uuid import uuid4
 
@@ -10,6 +11,7 @@ from PyQt6.QtWidgets import QTreeWidgetItem
 from qtpy import QtCore, QtGui, QtWidgets
 
 from video_scoring.settings import ApplicationSettings, ProjectSettings
+from video_scoring.utils import user_data_dir
 
 if TYPE_CHECKING:
     from video_scoring import MainWindow
@@ -38,22 +40,18 @@ class Settings:
 
     def load_settings_file(self, file_location: Optional[str] = None):
         if file_location is None:
-            latest_app_settings_location = self.qt_settings.value(
-                "application_settings_location"
-            )
+            app_settings_location = user_data_dir("settings.json")
         else:
-            latest_app_settings_location = file_location
-
-        if latest_app_settings_location is not None:
+            app_settings_location = file_location
+        if os.path.exists(app_settings_location):
             try:
-                self.app_settings.load(latest_app_settings_location)
+                self.app_settings.load(app_settings_location)
             except Exception as e:
                 log.error(f"Error loading settings file: {e}")
                 self.app_settings = ApplicationSettings()
-
-            self.qt_settings.setValue(
-                "application_settings_location", latest_app_settings_location
-            )
+        else:
+            log.info("No app settings file found, creating new settings")
+            self.app_settings = ApplicationSettings()
         sentry_sdk.add_breadcrumb(
             category="application_settings",
             message="loaded application_settings file",
