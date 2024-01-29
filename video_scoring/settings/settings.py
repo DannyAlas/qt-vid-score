@@ -43,7 +43,7 @@ class Settings:
             try:
                 self.app_settings.load(app_settings_location)
             except Exception as e:
-                log.error(f"Error loading settings file: {e}")
+                log.warn(f"Error loading settings file: {e}")
                 self.app_settings = ApplicationSettings()
         else:
             log.info("No app settings file found, creating new settings")

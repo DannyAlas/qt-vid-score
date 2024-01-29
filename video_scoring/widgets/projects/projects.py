@@ -172,7 +172,7 @@ class ProjectTree(QtWidgets.QTreeWidget):
             file = file.toLocalFile()
             if not file.endswith(".vsap"):
                 self.main_win.update_status(
-                    f"File is not a valid project file: {file}", logging.ERROR
+                    f"File is not a valid project file: {file}", logging.WARN
                 )
                 continue
                 # get the uid
@@ -180,7 +180,7 @@ class ProjectTree(QtWidgets.QTreeWidget):
             project.load_from_file(file)
             if project.uid in [p[0] for p in self.main_win.app_settings.projects]:
                 self.main_win.update_status(
-                    f"Project already exists: {project.name}", logging.ERROR
+                    f"Project already exists: {project.name}", logging.WARN
                 )
                 continue
             self.main_win.app_settings.projects.append((project.uid, file))
@@ -321,12 +321,12 @@ class ProjectsWidget(QtWidgets.QWidget):
                 project = self.main_win.settings.get_project(uid)
             except Exception as e:
                 self.main_win.update_status(
-                    f"Failed to load project: {uid}\n\t{e}", logging.ERROR
+                    f"Failed to load project: {uid}\n\t{e}", logging.WARN
                 )
                 return
             if project is None:
                 self.main_win.update_status(
-                    "Project not found", logging.ERROR, display_error=True
+                    "Project not found", logging.WARN, display_error=True
                 )
                 return
             self.main_win.load_project(project)
@@ -334,7 +334,7 @@ class ProjectsWidget(QtWidgets.QWidget):
     def open_project_file(self, file_path: str):
         if not file_path.endswith(".vsap"):
             self.main_win.update_status(
-                f"File is not a valid project file: {file_path}", logging.ERROR
+                f"File is not a valid project file: {file_path}", logging.WARN
             )
             return
         # get the uid
@@ -345,7 +345,7 @@ class ProjectsWidget(QtWidgets.QWidget):
     def import_project_file(self, file_path: str):
         if not file_path.endswith(".vsap"):
             self.main_win.update_status(
-                f"File is not a valid project file: {file_path}", logging.ERROR
+                f"File is not a valid project file: {file_path}", logging.WARN
             )
             return
         # get the uid
@@ -355,7 +355,7 @@ class ProjectsWidget(QtWidgets.QWidget):
         if str(project.uid) in [str(p[0]) for p in self.main_win.app_settings.projects]:
             # error
             self.main_win.update_status(
-                f"Project already exists: {project.name}", logging.ERROR
+                f"Project already exists: {project.name}", logging.WARN
             )
             # highlight the project in the project list
             for i in range(self.project_list.topLevelItemCount()):
