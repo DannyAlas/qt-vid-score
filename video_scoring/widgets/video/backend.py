@@ -342,4 +342,4 @@ class VideoWidget(QWidget):
             self.play_thread.start()
 
     def updateStatus(self, err, show):
-        log.error(err)
+        log.warn(err)

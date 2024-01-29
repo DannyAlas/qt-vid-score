@@ -27,7 +27,7 @@ dtT = TypeVar("dtT", datetime.datetime, str)
 
 VERSION = os.environ.get("VERSION", "")
 if VERSION == "":
-    log.error("VERSION environment variable not set")
+    log.warn("VERSION environment variable not set")
 
 
 class Message(BaseModel):
@@ -520,7 +520,7 @@ class ProjectSettings(AbstSettings):
         if file is None:
             file = self.file_location
         if not os.path.exists(file):
-            log.error(f"File {file} does not exist")
+            log.warn(f"File {file} does not exist")
             raise FileNotFoundError(f"File {file} does not exist")
 
         with zipfile.ZipFile(file, "r") as zipf:
@@ -528,7 +528,7 @@ class ProjectSettings(AbstSettings):
                 project_settings = json.load(f, cls=CustomDecoder)
 
         if project_settings is None:
-            log.error(f"File {file} is empty")
+            log.warn(f"File {file} is empty")
             raise ValueError(f"File {file} is empty")
         self.uid = project_settings.get("uid", "")
         self.name = project_settings.get("name", "")
@@ -601,10 +601,11 @@ class ProjectSettings(AbstSettings):
             main_win.app_settings.app_crash.version = main_win.app_settings.version
             main_win.app_settings.app_crash.project_locations.append(file)
             main_win.app_settings.save()
+            # FIXME: this is obtuse
             try:
                 main_win.notify_wont_save()
             except Exception as e:
-                log.error(f"Error notifying user of crash: {e}")
+                log.warn(f"Error notifying user of crash: {e}")
         if not os.path.exists(os.path.dirname(self.file_location)):
             os.makedirs(os.path.dirname(self.file_location))
         try:
@@ -612,7 +613,7 @@ class ProjectSettings(AbstSettings):
             self.modified = datetime.datetime.now()
             dump = json.dumps(self.model_dump(), indent=4, cls=SettingsEncoder)
         except Exception as e:
-            log.error(f"Error dumping project settings: {e}")
+            log.warn(f"Error dumping project settings: {e}")
             # propagate the error
             raise e
         with zipfile.ZipFile(self.file_location, "w") as zipf:

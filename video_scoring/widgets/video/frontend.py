@@ -660,7 +660,7 @@ class VideoPlayerDockWidget(QDockWidget):
             self.video_widget.startPlayer(video_file)
         except Exception as e:
             self.started = False
-            self.main_win.update_status(f"Error: {e}", True)
+            self.main_win.update_status(f"Error: {e}", logging.WARN)
             return
         self.started = True
         self.setWindowTitle(f"Video Player - {video_file.split('/')[-1]}")
@@ -788,7 +788,7 @@ class VideoPlayerDockWidget(QDockWidget):
     def seek_to_first_frame(self):
         if self.video_widget.play_worker is None:
             return
-        self.main_win.update_status("Seeking to first frame", logging.ERROR)
+        self.main_win.update_status("Seeking to first frame", logging.WARN)
         self.seek(0)
 
     def seek_to_last_frame(self):
@@ -843,7 +843,7 @@ class VideoPlayerDockWidget(QDockWidget):
             self.video_widget.startPlayer(video_file)
         except Exception as e:
             self.started = False
-            self.main_win.update_status(f"Error: {e}", True)
+            self.main_win.update_status(f"Error: {e}", logging.WARN)
             return
         self.setWindowTitle(f"Video Player - {video_file.split('/')[-1]}")
         self.started = True

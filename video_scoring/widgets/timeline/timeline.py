@@ -645,7 +645,7 @@ class TimelineDockWidget(QDockWidget):
                 self.timeline_view.add_behavior_track("Track 1")
             except Exception as e:
                 self.main_win.update_status(
-                    f"Error loading tracks: {str(e)}", logging.ERROR
+                    f"Error loading tracks: {str(e)}", logging.WARN
                 )
         else:
             self.timeline_view.behavior_tracks[0].track_header.check_record_button()
@@ -774,7 +774,7 @@ class TimelineDockWidget(QDockWidget):
             except Exception as e:
                 self.main_win.update_status(
                     f"Error loading track {track_s.name} shortcut: {str(e)}",
-                    logging.ERROR,
+                    logging.WARN,
                 )
             for item in track_s.behavior_items:
                 self.timeline_view.silent_add_oo_behavior(
@@ -794,7 +794,7 @@ class TimelineDockWidget(QDockWidget):
         self, name: str, onset_offset_unsure: list[tuple[int, int, bool]]
     ):
         if len(onset_offset_unsure) == 0:
-            self.main_win.update_status("No timestamps passed", logging.ERROR)
+            self.main_win.update_status("No timestamps passed", logging.WARN)
             return
         try:
             track = self.timeline_view.add_behavior_track(name)
