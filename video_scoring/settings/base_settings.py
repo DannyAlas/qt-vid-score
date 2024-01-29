@@ -602,20 +602,6 @@ class ProjectSettings(AbstSettings):
                 backup_location,
                 backup_file_name,
             )
-<<<<<<< Updated upstream
-            log.warning(f"Saving backup to {file}")
-            self.uid = uuid4()
-            self.file_location = file
-            self.name = f"{self.name} - Backup"
-            main_win.app_settings.app_crash.version = main_win.app_settings.version
-            main_win.app_settings.app_crash.project_locations.append(file)
-            main_win.app_settings.save()
-            try:
-                main_win.notify_wont_save()
-            except Exception as e:
-                log.error(f"Error notifying user of crash: {e}")
-=======
->>>>>>> Stashed changes
         if not os.path.exists(os.path.dirname(self.file_location)):
             os.makedirs(os.path.dirname(self.file_location))
         try:
@@ -649,15 +635,7 @@ class ProjectSettings(AbstSettings):
                 level="info",
             )
         except Exception as e:
-<<<<<<< Updated upstream
             log.error(f"Error dumping project settings: {e}")
-            # propagate the error
-=======
-            log.warn(f"Error dumping project settings: {e}")
-            # log full traceback
-            import traceback
-            log.warn(traceback.format_exc(limit=20))
->>>>>>> Stashed changes
             raise e
 
 
