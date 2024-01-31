@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import zipfile
-from re import A
 from typing import (TYPE_CHECKING, Any, Dict, List, Literal, Tuple, TypeVar,
                     Union)
 from uuid import UUID, uuid4
@@ -580,48 +579,64 @@ class ProjectSettings(AbstSettings):
                 },
             )
 
-    def save(self, main_win: "MainWindow", file=None):
-        if file:
+    def save(self, main_win: "MainWindow", file=None, ignore_backup=False):
+        backup_project = None
+        og_location = self.file_location
+        if file and file != self.file_location:
+            # this is like a new project, so we need to create a new uid
             self.uid = uuid4()
             self.file_location = file
         # get UNHANDLED_EXCEPTION environment variable
-        if os.environ.get("UNHANDLED_EXCEPTION", "False") == "True":
+        if os.environ.get("UNHANDLED_EXCEPTION", "False") == "True" and not ignore_backup:
             main_win.app_settings.app_crash = AppCrash(
                 project_uid=self.uid,
             )
+            backup_project = ProjectSettings()
             backup_location = os.path.join(user_data_dir(), "Backups")
-            file = os.path.join(
+            backup_file_name = f'{self.name} - Backup - {str(main_win.app_settings.app_crash.timestamp.strftime("%Y-%m-%d %H-%M-%S"))}.vsap'
+            if not os.path.exists(backup_location):
+                os.makedirs(backup_location, exist_ok=True)
+            if os.path.exists(os.path.join(backup_location, backup_file_name)):
+                backup_file_name = f'{self.name} - Backup - {str(main_win.app_settings.app_crash.timestamp.strftime("%Y-%m-%d %H-%M-%S"))} - {str(uuid4())}.vsap'
+            backup_project_file_location = os.path.join(
                 backup_location,
-                f"{str(uuid4())}_{self.name}_{str(main_win.app_settings.app_crash.timestamp.strftime('%Y-%m-%d_%H-%M-%S'))}.vsap",
+                backup_file_name,
             )
-            log.warning(f"Saving backup to {file}")
-            self.uid = uuid4()
-            self.file_location = file
-            self.name = f"{self.name} - Backup"
-            main_win.app_settings.app_crash.version = main_win.app_settings.version
-            main_win.app_settings.app_crash.project_locations.append(file)
-            main_win.app_settings.save()
-            try:
-                main_win.notify_wont_save()
-            except Exception as e:
-                log.error(f"Error notifying user of crash: {e}")
         if not os.path.exists(os.path.dirname(self.file_location)):
             os.makedirs(os.path.dirname(self.file_location))
         try:
-            # set the modified date
+            # if there is a backup project, save the project there before writing the current changes
+            if backup_project:
+                try:
+                    backup_project.load_from_file(og_location)
+                    backup_project.uid = uuid4()
+                    backup_project.name = backup_file_name
+                    backup_project.file_location = backup_project_file_location
+                    backup_project.save(main_win=main_win, ignore_backup=True)
+                    log.warning(f"Saving backup to {backup_project_file_location}")
+                    main_win.app_settings.app_crash.version = main_win.app_settings.version
+                    main_win.app_settings.app_crash.project_locations.append(backup_project_file_location)
+                    main_win.app_settings.save()
+                except Exception as e:
+                    # if we can't save the backup, set save the current changes to the backup so that we don't overwrite anything, and notify the user
+                    log.error(f"Error saving backup: {e}")
+                    self.uid = uuid4()
+                    self.file_location = backup_project_file_location
+                    self.name = backup_project.name
+                    main_win.notify_wont_save(location = backup_project_file_location)
+
             self.modified = datetime.datetime.now()
             dump = json.dumps(self.model_dump(), indent=4, cls=SettingsEncoder)
+            with zipfile.ZipFile(self.file_location, "w") as zipf:
+                zipf.writestr("settings.json", dump)
+            sentry_sdk.add_breadcrumb(
+                category="project_settings",
+                message=f"saved project_settings file: {str(self.uid)} - {self.name}",
+                level="info",
+            )
         except Exception as e:
             log.error(f"Error dumping project settings: {e}")
-            # propagate the error
             raise e
-        with zipfile.ZipFile(self.file_location, "w") as zipf:
-            zipf.writestr("settings.json", dump)
-        sentry_sdk.add_breadcrumb(
-            category="project_settings",
-            message=f"saved project_settings file: {str(self.uid)} - {self.name}",
-            level="info",
-        )
 
 
 class ApplicationSettings(AbstSettings):

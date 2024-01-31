@@ -1,5 +1,4 @@
 import base64
-import dis
 import inspect
 import json
 import logging
@@ -15,9 +14,13 @@ from qtpy.QtCore import QThread, QUrl, Signal
 from qtpy.QtWidgets import QMainWindow, QSplashScreen
 
 from video_scoring.command_stack import CommandStack
-from video_scoring.settings import (DockWidgetState, Layout, ProjectSettings,
-                                    Settings, TDTData)
-from video_scoring.widgets.analysis import VideoAnalysisDock
+from video_scoring.settings import (
+    DockWidgetState,
+    Layout,
+    ProjectSettings,
+    Settings,
+    TDTData,
+)
 from video_scoring.widgets.loaders import TDTLoader
 from video_scoring.widgets.progress import ProgressBar, ProgressSignals
 from video_scoring.widgets.projects import ProjectsWidget
@@ -26,9 +29,14 @@ from video_scoring.widgets.settings import SettingsDockWidget
 from video_scoring.widgets.style_sheet import DynamicIcon, StyleSheet
 from video_scoring.widgets.timeline import TimelineDockWidget
 from video_scoring.widgets.timestamps import TimeStampsDockwidget
-from video_scoring.widgets.update import (UpdateCheck, UpdatedDialog,
-                                          UpdateDialog, Updater)
+from video_scoring.widgets.update import (
+    UpdateCheck,
+    UpdatedDialog,
+    UpdateDialog,
+    Updater,
+)
 from video_scoring.widgets.video.frontend import VideoPlayerDockWidget
+from video_scoring.utils import user_data_dir
 
 log = logging.getLogger("video_scoring")
 
@@ -194,7 +202,7 @@ class MainWindow(QMainWindow):
         self.set_central_widget(self.projects_w)
         self.projects_w.import_project()
 
-    def import_previous_project(self):
+    def import_old_project(self):
         # prompt file dialog to get json
         file_dialog = QtWidgets.QFileDialog()
         file_dialog.setFileMode(QtWidgets.QFileDialog.FileMode.AnyFile)
@@ -233,14 +241,14 @@ class MainWindow(QMainWindow):
         self.save_settings()
         if not file_path.endswith(".vsap"):
             self.update_status(
-                f"File is not a valid project file: {file_path}", logging.ERROR
+                f"File is not a valid project file: {file_path}", logging.WARN
             )
             return
         project = ProjectSettings()
         try:
             project.load_from_file(file_path)
         except Exception as e:
-            self.update_status(str(e), logging.ERROR)
+            self.update_status(str(e), logging.WARN)
             return
         self.load_project(project)
         if self.splash is not None:
@@ -255,7 +263,7 @@ class MainWindow(QMainWindow):
         self.update_check.update_available.connect(self.update_available)
         self.update_check.no_update.connect(self.no_update_available)
         self.update_check.update_error.connect(
-            lambda e: self.update_status(str(e), logging.ERROR)
+            lambda e: self.update_status(str(e), logging.WARN)
         )
         self.update_check.no_update.connect(
             lambda: self.update_status(
@@ -273,8 +281,6 @@ class MainWindow(QMainWindow):
     def no_update_available(self):
         # check the installer folder in the appdata Video Scoring folder
         # if it exists, check if the version is the same as the current version, if so delete it
-        from video_scoring.settings.base_settings import user_data_dir
-
         installer_dir = os.path.join(os.path.dirname(user_data_dir()), "installer")
         if os.path.exists(installer_dir):
             for file in os.listdir(installer_dir):
@@ -319,7 +325,7 @@ class MainWindow(QMainWindow):
         from video_scoring.utils import run_exe_as_admin
 
         if not sys.platform.startswith("win"):
-            self.update_status(f"{sys.platform} is not supported", logging.ERROR)
+            self.update_status(f"{sys.platform} is not supported", logging.WARN)
             return
         installer_dir = os.path.join(
             os.getenv("LOCALAPPDATA"), "Video Scoring", "installer"
@@ -330,7 +336,7 @@ class MainWindow(QMainWindow):
             if file.endswith(".exe")
         ][0]
         if not os.path.exists(installer_file):
-            self.update_status("Installer not found", logging.ERROR)
+            self.update_status("Installer not found", logging.WARN)
             return
         run_exe_as_admin(installer_file)
         self.close()
@@ -356,12 +362,12 @@ class MainWindow(QMainWindow):
         self.tray_icon.show()
 
     def update_status(
-        self, message: str, log_level=logging.DEBUG, do_log=True, display_error=True
+        self, message: str, log_level=logging.DEBUG, do_log=True, display_warning=True
     ):
 
         if self.status_bar is not None:
             self.status_bar.showMessage(str(message))
-        if display_error and log_level == logging.ERROR:
+        if display_warning and log_level == logging.WARN:
             msg = QtWidgets.QMessageBox()
             msg.setWindowTitle("Error")
             msg.setText(f"{message}")
@@ -403,11 +409,10 @@ class MainWindow(QMainWindow):
         self.file_menu.addAction("New Project", self.new_project)
         self.file_menu.addAction("Open Project", self.open_project)
         self.file_menu.addAction("Import Project", self.import_project_file)
-        self.file_menu.addAction(
-            "Import Previous Project", self.import_previous_project
-        )
+        self.file_menu.addAction("Import Old Project", self.import_old_project)
         self.file_menu.addAction("Save Project", self.save_settings)
         self.file_menu.addAction("Save Project As", self.save_project_as)
+        self.file_menu.addAction("Open Backups", self.open_backups)
         self.file_menu.addSeparator()
         self.import_menu = self.file_menu.addMenu("Import")
         if self.import_menu is None:
@@ -469,7 +474,8 @@ class MainWindow(QMainWindow):
                             "New Project",
                             "Open Project",
                             "Import Project",
-                            "Import Previous Project",
+                            "Import Old Project",
+                            "Open Backups",
                             "Exit",
                         ]:
                             sub_action.setEnabled(True)
@@ -590,17 +596,21 @@ class MainWindow(QMainWindow):
             layout = self.project_settings.layouts.get(layout_name)
         # if the layout is still None, it doesn't exist
         if layout is None:
-            self.update_status(f"Layout {layout_name} not found", logging.ERROR)
+            self.update_status(f"Layout {layout_name} not found", logging.WARN)
             return
 
         self.restoreGeometry(base64.b64decode(layout.geometry))
         # if the main window is outside of the visible screen, move it to the center
         if not self.is_pos_visible((self.x(), self.y())):
             self.move(
-                int(QtWidgets.QApplication.screens()[0].geometry().width() / 2
-                - self.width() / 2),
-                int(QtWidgets.QApplication.screens()[0].geometry().height() / 2
-                - self.height() / 2),
+                int(
+                    QtWidgets.QApplication.screens()[0].geometry().width() / 2
+                    - self.width() / 2
+                ),
+                int(
+                    QtWidgets.QApplication.screens()[0].geometry().height() / 2
+                    - self.height() / 2
+                ),
             )
 
         self.restoreState(base64.b64decode(layout.dock_state), 1)
@@ -640,7 +650,7 @@ class MainWindow(QMainWindow):
 
     def delete_layout(self, layout_name: str):
         if layout_name not in self.project_settings.layouts.keys():
-            self.update_status(f"Layout {layout_name} not found", logging.ERROR)
+            self.update_status(f"Layout {layout_name} not found", logging.WARN)
             return
 
         del self.project_settings.layouts[layout_name]
@@ -687,8 +697,7 @@ class MainWindow(QMainWindow):
     def import_timestamps(self):
         # try save current project
         self.save_settings()
-        from video_scoring.widgets.timestamps.importer import \
-            TimestampsImporter
+        from video_scoring.widgets.timestamps.importer import TimestampsImporter
 
         self.ts_importer = TimestampsImporter(self)
         self.ts_importer.imported.connect(
@@ -916,6 +925,13 @@ class MainWindow(QMainWindow):
         self.projects_w = ProjectsWidget(self)
         self.set_central_widget(self.projects_w)
 
+    def open_backups(self):
+        # open the backups folder with the os file explorer
+        backup_location = os.path.join(user_data_dir(), "Backups")
+        if not os.path.exists(backup_location):
+            os.makedirs(backup_location)
+        os.startfile(backup_location)
+
     def init_logging(self):
         self.log = logging.getLogger("video_scoring")
         self.update_log_file()
@@ -950,7 +966,7 @@ class MainWindow(QMainWindow):
             self.project_settings.last_layout = self.get_layout()
             self.project_settings.save(main_win=self, file=project_file_location)
         except Exception as e:
-            self.update_status(str(e), logging.ERROR)
+            self.update_status(str(e), logging.WARN)
             raise Exception(f"Failed to save project file to {project_file_location}")
 
     def save_project_as(self):
@@ -975,41 +991,19 @@ class MainWindow(QMainWindow):
             self.save_settings(file_dialog.selectedFiles()[0])
             self.projects_w.open_project_file(file_dialog.selectedFiles()[0])
 
-    def notify_wont_save(self):
+    def notify_wont_save(self, location: str):
         if self.app_settings.app_crash is None:
             return
         msg = QtWidgets.QMessageBox()
         msg.setWindowTitle("Something went wrong")
         msg.setText(
-            f"""There was an error with application. 
+            f"""There was an error with application. The original project file was not overwritten.
 
-The current project has NOT BEEN OVERWRITTEN with any changes. 
-
-Instead a backup with the current changes was saved at {self.app_settings.app_crash.project_locations[0]}.
-
-The developers have been notified of this error and will work to fix it as soon as possible. If you would like to help, please submit a bug report https://github.com/DannyAlas/qt-vid-score/issues
+Instead the project changes were saved at {location}.
 """
         )
         msg.setIcon(QtWidgets.QMessageBox.Icon.Critical)
         msg.exec()
-
-    def notify_last_crash(self):
-        if self.settings.app_settings.app_crash is None:
-            return
-        msg = QtWidgets.QMessageBox()
-        msg.setWindowTitle("Unexpected Exit")
-        msg.setText(
-            f"""The application unexpectedly exited.
-
-Your project was saved at {self.settings.app_settings.app_crash.project_locations[0]}.
-"""
-        )
-        msg.setIcon(QtWidgets.QMessageBox.Icon.Critical)
-        msg.exec()
-        self.projects_w.add_backup_project_file(
-            self.settings.app_settings.app_crash.project_locations[0]
-        )
-        self.settings.app_settings.app_crash = None
 
     def update_log_file(self):
         if self.settings.app_settings is None:

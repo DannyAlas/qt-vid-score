@@ -43,7 +43,7 @@ class Settings:
             try:
                 self.app_settings.load(app_settings_location)
             except Exception as e:
-                log.error(f"Error loading settings file: {e}")
+                log.warn(f"Error loading settings file: {e}")
                 self.app_settings = ApplicationSettings()
         else:
             log.info("No app settings file found, creating new settings")
@@ -57,8 +57,6 @@ class Settings:
             log.info(
                 f"Loaded application settings version: {self.app_settings.version}"
             )
-        if self.app_settings.app_crash is not None:
-            self.main_win.loaded.connect(self.main_win.notify_last_crash)
 
     def save_app_settings_file(self):
         save_loc = self.app_settings.save()
@@ -68,7 +66,9 @@ class Settings:
         self, old_settings: dict, new_name: str, new_location: str
     ):
         from video_scoring.settings.base_settings import (
-            BehaviorTrackSetting, OOBehaviorItemSetting)
+            BehaviorTrackSetting,
+            OOBehaviorItemSetting,
+        )
 
         # a new project will be created for the old monolithic settings
         project = ProjectSettings()
