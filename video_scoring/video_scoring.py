@@ -241,14 +241,14 @@ class MainWindow(QMainWindow):
         self.save_settings()
         if not file_path.endswith(".vsap"):
             self.update_status(
-                f"File is not a valid project file: {file_path}", logging.ERROR
+                f"File is not a valid project file: {file_path}", logging.WARN
             )
             return
         project = ProjectSettings()
         try:
             project.load_from_file(file_path)
         except Exception as e:
-            self.update_status(str(e), logging.ERROR)
+            self.update_status(str(e), logging.WARN)
             return
         self.load_project(project)
         if self.splash is not None:
@@ -263,7 +263,7 @@ class MainWindow(QMainWindow):
         self.update_check.update_available.connect(self.update_available)
         self.update_check.no_update.connect(self.no_update_available)
         self.update_check.update_error.connect(
-            lambda e: self.update_status(str(e), logging.ERROR)
+            lambda e: self.update_status(str(e), logging.WARN)
         )
         self.update_check.no_update.connect(
             lambda: self.update_status(
@@ -325,7 +325,7 @@ class MainWindow(QMainWindow):
         from video_scoring.utils import run_exe_as_admin
 
         if not sys.platform.startswith("win"):
-            self.update_status(f"{sys.platform} is not supported", logging.ERROR)
+            self.update_status(f"{sys.platform} is not supported", logging.WARN)
             return
         installer_dir = os.path.join(
             os.getenv("LOCALAPPDATA"), "Video Scoring", "installer"
@@ -336,7 +336,7 @@ class MainWindow(QMainWindow):
             if file.endswith(".exe")
         ][0]
         if not os.path.exists(installer_file):
-            self.update_status("Installer not found", logging.ERROR)
+            self.update_status("Installer not found", logging.WARN)
             return
         run_exe_as_admin(installer_file)
         self.close()
@@ -362,12 +362,12 @@ class MainWindow(QMainWindow):
         self.tray_icon.show()
 
     def update_status(
-        self, message: str, log_level=logging.DEBUG, do_log=True, display_error=True
+        self, message: str, log_level=logging.DEBUG, do_log=True, display_warning=True
     ):
 
         if self.status_bar is not None:
             self.status_bar.showMessage(str(message))
-        if display_error and log_level == logging.ERROR:
+        if display_warning and log_level == logging.WARN:
             msg = QtWidgets.QMessageBox()
             msg.setWindowTitle("Error")
             msg.setText(f"{message}")
@@ -596,7 +596,7 @@ class MainWindow(QMainWindow):
             layout = self.project_settings.layouts.get(layout_name)
         # if the layout is still None, it doesn't exist
         if layout is None:
-            self.update_status(f"Layout {layout_name} not found", logging.ERROR)
+            self.update_status(f"Layout {layout_name} not found", logging.WARN)
             return
 
         self.restoreGeometry(base64.b64decode(layout.geometry))
@@ -650,7 +650,7 @@ class MainWindow(QMainWindow):
 
     def delete_layout(self, layout_name: str):
         if layout_name not in self.project_settings.layouts.keys():
-            self.update_status(f"Layout {layout_name} not found", logging.ERROR)
+            self.update_status(f"Layout {layout_name} not found", logging.WARN)
             return
 
         del self.project_settings.layouts[layout_name]
@@ -966,7 +966,7 @@ class MainWindow(QMainWindow):
             self.project_settings.last_layout = self.get_layout()
             self.project_settings.save(main_win=self, file=project_file_location)
         except Exception as e:
-            self.update_status(str(e), logging.ERROR)
+            self.update_status(str(e), logging.WARN)
             raise Exception(f"Failed to save project file to {project_file_location}")
 
     def save_project_as(self):
