@@ -4,8 +4,7 @@ from PyQt6.QtGui import QPainter
 from PyQt6.QtWidgets import QStyleOptionGraphicsItem, QWidget
 from qtpy.QtCore import QObject, QPointF, Qt, Signal
 from qtpy.QtGui import QBrush, QColor, QPen, QPolygonF
-from qtpy.QtWidgets import (QGraphicsItem, QGraphicsLineItem,
-                            QGraphicsPolygonItem)
+from qtpy.QtWidgets import QGraphicsItem, QGraphicsLineItem, QGraphicsPolygonItem
 
 if TYPE_CHECKING:
     from video_scoring.widgets.timeline.timeline import TimelineView

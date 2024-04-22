@@ -2,9 +2,15 @@ from typing import TYPE_CHECKING
 
 from qtpy.QtCore import QObject, QPointF, QRectF, Qt, QTimer, Signal
 from qtpy.QtGui import QBrush, QColor, QMouseEvent, QPainter, QPen
-from qtpy.QtWidgets import (QGraphicsItem, QGraphicsRectItem,
-                            QGraphicsSceneHoverEvent, QGraphicsSceneMouseEvent,
-                            QMenu, QStyleOptionGraphicsItem, QWidget)
+from qtpy.QtWidgets import (
+    QGraphicsItem,
+    QGraphicsRectItem,
+    QGraphicsSceneHoverEvent,
+    QGraphicsSceneMouseEvent,
+    QMenu,
+    QStyleOptionGraphicsItem,
+    QWidget,
+)
 
 from video_scoring.widgets.timeline.commands import OnsetOffsetMoveCommand
 

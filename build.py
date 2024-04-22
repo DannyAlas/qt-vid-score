@@ -1,7 +1,7 @@
 import os
 import re
 import subprocess
-from turtle import st
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -38,7 +38,9 @@ Main: {main_version}
 
 
 def run_tests():
-    print("I should really make some tests...")
+    # run all tests in the subdirectories of the testing directory
+    os.system("pytest testing")
+    
 
 
 def build_main():
@@ -98,5 +100,5 @@ def run_installer():
 if __name__ == "__main__":
     check_version_match()
     run_tests()
-    build_main()
-    run_installer()
+    # build_main()
+    # run_installer()

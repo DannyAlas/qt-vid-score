@@ -4,9 +4,9 @@ from video_scoring.command_stack import Command
 
 if TYPE_CHECKING:
     from video_scoring.widgets.timeline.behavior_items import OnsetOffsetItem
+    from video_scoring.widgets.timeline.flag import FlagItem
     from video_scoring.widgets.timeline.marker import MarkerItem
-    from video_scoring.widgets.timeline.timeline import (TimelineDockWidget,
-                                                         TimelineView)
+    from video_scoring.widgets.timeline.timeline import TimelineDockWidget, TimelineView
     from video_scoring.widgets.timeline.track import BehaviorTrack
 
 
@@ -211,4 +211,34 @@ class MarkerMoveCommand(Command):
         self.item.set_onset_offset(self.redo_onset, self.redo_offset)
         self.item.update()
         self.item.signals.updated.emit()
+        self.item.scene().update()
+
+
+class FlagMoveCommand(Command):
+    """
+    Implements a command for undo/redo functionality of flag moves.
+
+    Parameters
+    ----------
+    undo_frame : int
+        The to be set when undoing the command
+    redo_frame : int
+        The to be set when redoing the command
+    flag : FlagItem
+        The flag that the command is associated with
+    """
+
+    def __init__(self, undo_frame, redo_frame, item: "FlagItem"):
+        self.undo_frame = undo_frame
+        self.redo_frame = redo_frame
+        self.item = item
+
+    def undo(self):
+        self.item.set_frame(self.undo_frame)
+        self.item.update()
+        self.item.scene().update()
+
+    def redo(self):
+        self.item.set_frame(self.redo_frame)
+        self.item.update()
         self.item.scene().update()

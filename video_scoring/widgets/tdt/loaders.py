@@ -3,11 +3,13 @@ import os
 import re
 import warnings
 from datetime import datetime
+from typing import List, Literal, Tuple, Union
 
 import numpy as np
 import tdt
+from enum import StrEnum
 from qtpy.QtCore import QObject
-
+from video_scoring.widgets.tdt._types import Block
 from video_scoring.widgets.progress import ProgressSignals
 
 MAX_UINT64 = np.iinfo(np.uint64).max
@@ -180,11 +182,7 @@ def read_sev(
     ranges=None,
     verbose=0,
     just_names=0,
-    export=None,
     scale=1,
-    dtype=None,
-    outdir=None,
-    prefix=None
 ):
     """TDT sev file data extraction.
 
@@ -214,30 +212,9 @@ def read_sev(
         fs          float, sampling rate override. Useful for lower
                         sampling rates that aren't correctly written into
                         the SEV header.
-        export      string, choose a data exporting format.
-                        csv:        data export to comma-separated value files
-                                    streams: one file per store, one channel per column
-                                    epocs: one column onsets, one column offsets
-                        binary:     streaming data is exported as raw binary files
-                                    one file per channel per store
-                        interlaced: streaming data exported as raw binary files
-                                    one file per store, data is interlaced
         scale       float, scale factor for exported streaming data. Default = 1.
-        dtype       string, data type for exported binary data files
-                        None: Uses the format the data was stored in (default)
-                        'i16': Converts all data to 16-bit integer format
-                        'f32': Converts all data to 32-bit integer format
-        outdir      string, output directory for exported files. Defaults to current
-                        block folder if not specified
-        prefix    string, prefix for output file name. Defaults to None
     """
 
-    if outdir is None and export is not None:
-        outdir = sev_dir
-    if outdir is not None and export is None:
-        warnings.warn(
-            "no export is selected, outdir parameter is ignored", Warning, stacklevel=2
-        )
 
     data = tdt.StructType()
     sample_info = []
@@ -389,7 +366,6 @@ def read_sev(
             stream_header.event_name = file["event_name"]
 
             if stream_header.file_version < 4:
-
                 # prior to v3, OpenEx and RS4 were not setting this properly
                 # (one of them was flipping it), so only trust the event name in
                 # header if file_version is 3 or higher
@@ -493,33 +469,7 @@ upgrade to OpenEx v2.18 or above\n""".format(
     if num_ranges > 0:
         data["time_ranges"] = valid_time_range
 
-    if export is not None:
-        if prefix:
-            fff = prefix + "_" + export + "_sev_export.txt"
-        else:
-            fff = export + "_sev_export.txt"
-        txt_file = os.path.join(outdir, fff)
-        with open(txt_file, "w") as f:
-            f.write("Path:\t{0}\n".format(sev_dir))
-            f.write("ScaleFactor:\t{0}\n".format(scale))
-            f.write("Stores:\n")
-            skip_events = []
-            for file in file_list:
-                this_event = file["event_name"]
-                if (
-                    event_name and event_name != this_event
-                ) or this_event in skip_events:
-                    continue
-                f.write("\tName:\t{0}\n".format(this_event))
-                f.write("\tFreq:\t{0}\n".format(file["fs"]))
-                max_chan = max(
-                    [f["chan"] for f in file_list if f["event_name"] == this_event]
-                )
-                f.write("\tNChan:\t{0}\n".format(max_chan))
-                skip_events.append(this_event)
-
     for this_event in event_names:
-
         if event_name and event_name != this_event:
             continue
 
@@ -608,7 +558,6 @@ upgrade to OpenEx v2.18 or above\n""".format(
         end_hour_samples_end = np.zeros(num_ranges, dtype=np.uint64)
 
         for jj in range(num_ranges):
-
             # find recording start sample
             this_start_sample = file_list_temp[temp_num]["start_sample"] - 1
             minSample = time2sample(valid_time_range[0, jj], fs, t1=True)
@@ -638,266 +587,98 @@ upgrade to OpenEx v2.18 or above\n""".format(
         data[varname] = tdt.StructType()
         data[varname]["channels"] = channels
 
-        # preallocate if we are not exporting
-        if export is None:
-            if np.any([fff["gap_text"] != "" for fff in file_list_temp]):
-                data[varname].data = []
-                data[varname]["name"] = varname
-                data[varname]["fs"] = fs
-                return data
-            else:
-                data[varname].data = [[] for i in range(num_ranges)]
-                for jj in range(num_ranges):
-                    data[varname]["data"][jj] = np.zeros(
-                        (
-                            len(channels),
-                            absolute_end_sample[jj]
-                            - absolute_start_sample[jj]
-                            + np.uint64(2 + this_start_sample),
-                        ),
-                        dtype=data_format,
-                    )
-        # else:
-        #     print("exporting SEV stream {0}...".format(this_event))
+        # preallocate
+        if np.any([fff["gap_text"] != "" for fff in file_list_temp]):
+            data[varname].data = []
+            data[varname]["name"] = varname
+            data[varname]["fs"] = fs
+            return data
+        else:
+            data[varname].data = [[] for i in range(num_ranges)]
+            for jj in range(num_ranges):
+                data[varname]["data"][jj] = np.zeros(
+                    (
+                        len(channels),
+                        absolute_end_sample[jj]
+                        - absolute_start_sample[jj]
+                        + np.uint64(2 + this_start_sample),
+                    ),
+                    dtype=data_format,
+                )
 
         # loop through the time ranges
         for ii in range(num_ranges):
-            if export in ["csv", "interlaced", "binary"]:
-                ftype = None
-                if export in ["interlaced", "binary"]:
-                    if dtype is None:
-                        if data_format == np.int16:
-                            ftype = "i16"
-                        elif data_format == np.float32:
-                            ftype = "f32"
-                    else:
-                        ftype = dtype
-                else:
-                    ftype = export
+            # loop through the channels
+            arr_index = 0
+            for chan in channels:
+                chan_index = np.uint64(0) + this_start_sample
 
-                if ftype == "f32":
-                    export_type = np.float32
-                elif ftype == "i16":
-                    export_type = np.int16
+                ind2 = np.asarray(chans) == chan
 
-                temp_outfile = ""
-                if num_ranges > 1:
-                    temp_outfile = "tr" + str(ii) + "_"
+                # loop through the chunks
+                for kk in range(
+                    start_hour_file[ii], end_hour_file[ii] + np.uint64(1)
+                ):
+                    ind1 = np.asarray(hours) == kk
+                    if ~np.any(ind1 & ind2):
+                        continue
+                    file_num = np.where(ind1 & ind2)[0][0]
 
-                if export in ["binary"]:
-                    file_handles = {}
-                    outfile_paths = {}
-                    for x in set(channels):
-                        if prefix:
-                            outname = os.path.join(
-                                outdir,
-                                "{0}{1}_{2}_{3}.{4}".format(
-                                    temp_outfile, prefix, temp_event_name, x, ftype
-                                ),
-                            )
+                    # read rest of file into data array as correct format
+                    data[varname]["name"] = temp_event_name
+                    data[varname]["fs"] = fs
+
+                    # skip data load if there are gaps
+                    if file_list_temp[file_num]["gap_text"] != "":
+                        return data
+
+                    # open file
+                    with open(file_list_temp[file_num]["fullname"], "rb") as f:
+                        # skip first 40 bytes from header
+                        f.seek(40, os.SEEK_SET)
+
+                        if kk == start_hour_file[ii]:
+                            firstSample = start_hour_samples_to_skip[ii]
                         else:
-                            outname = os.path.join(
-                                outdir,
-                                "{0}{1}_{2}.{3}".format(
-                                    temp_outfile, temp_event_name, x, ftype
+                            firstSample = 0
+
+                        if kk == end_hour_file[ii]:
+                            lastSample = end_hour_samples_end[ii]
+                        else:
+                            lastSample = MAX_UINT64
+
+                        # skip ahead
+                        if firstSample > 0:
+                            f.seek(
+                                int(
+                                    firstSample
+                                    * file_list_temp[file_num]["itemsize"]
                                 ),
+                                os.SEEK_CUR,
                             )
-                        file_handles[x] = open(outname, "wb+")
-                        outfile_paths[x] = outname
-                elif export in ["csv", "interlaced"]:
-                    if prefix:
-                        outname = os.path.join(
-                            outdir,
-                            "{0}{1}_{2}.{3}".format(
-                                temp_outfile, prefix, temp_event_name, ftype
-                            ),
-                        )
-                    else:
-                        outname = os.path.join(
-                            outdir,
-                            "{0}{1}.{2}".format(temp_outfile, temp_event_name, ftype),
-                        )
-                    file_handle = open(outname, "w")
-                    if export == "csv":
-                        file_handle.write(",".join([str(x) for x in channels]) + "\n")
 
-            if export in ["csv", "interlaced"]:
-                for kk in range(start_hour_file[ii], end_hour_file[ii] + np.uint64(1)):
-                    temp_data = None
-                    chan_index = {}
-                    for chan in channels:
-                        chan_index[chan] = np.uint64(0) + this_start_sample
-
-                    # loop through the channels
-                    arr_index = 0
-                    for chan in channels:
-                        ind2 = np.asarray(chans) == chan
-                        ind1 = np.asarray(hours) == kk
-                        try:
-                            file_num = np.where(ind1 & ind2)[0][0]
-                        except:
-                            warnings.warn(
-                                "SEV file for {0} channel {1} not found".format(
-                                    varname, chan
-                                ),
-                                Warning,
-                                stacklevel=2,
-                            )
-                            continue
-
-                        # skip data load if there are gaps
-                        if file_list_temp[file_num]["gap_text"] != "":
-                            return None
-
-                        # open file
-                        with open(file_list_temp[file_num]["fullname"], "rb") as f:
-
-                            # skip first 40 bytes from header
-                            f.seek(40, os.SEEK_SET)
-
-                            if kk == start_hour_file[ii]:
-                                firstSample = start_hour_samples_to_skip[ii]
-                            else:
-                                firstSample = chan_index[chan]
-
-                            if kk == end_hour_file[ii]:
-                                lastSample = end_hour_samples_end[ii]
-                            else:
-                                lastSample = MAX_UINT64
-
-                            # skip ahead
-                            if firstSample > 0:
-                                f.seek(
+                        if lastSample == MAX_UINT64:
+                            ddd = np.frombuffer(f.read(), dtype=data_format)
+                        else:
+                            ddd = np.frombuffer(
+                                f.read(
                                     int(
-                                        firstSample
+                                        (lastSample - firstSample + 1)
                                         * file_list_temp[file_num]["itemsize"]
-                                    ),
-                                    os.SEEK_CUR,
-                                )
-
-                            if lastSample == MAX_UINT64:
-                                ddd = np.frombuffer(f.read(), dtype=data_format)
-                            else:
-                                ddd = np.frombuffer(
-                                    f.read(
-                                        int(
-                                            (lastSample - firstSample)
-                                            * file_list_temp[file_num]["itemsize"]
-                                        )
-                                    ),
-                                    dtype=data_format,
-                                )
-
-                            if temp_data is None:
-                                temp_data = np.zeros(
-                                    (len(channels), len(ddd)), dtype=data_format
-                                )
-                            temp_data[arr_index, :] = ddd
-                            chan_index[chan] += len(ddd)
-                            arr_index += 1
-
-                        # if verbose:
-                        #     print(file_list[file_num])
-
-                    # after reading chunks from all channels, export interlaced data
-                    if scale != 1:
-                        temp_data = (np.float64(temp_data) * np.float64(scale)).astype(
-                            data_format
-                        )
-                    if export in ["interlaced"]:
-                        temp_data.astype(export_type, copy=False).T.tofile(file_handle)
-                    elif export in ["csv"]:
-                        np.savetxt(file_handle, temp_data.T, fmt="%.15f", delimiter=",")
-            else:
-                # loop through the channels
-                arr_index = 0
-                for chan in channels:
-                    chan_index = np.uint64(0) + this_start_sample
-
-                    ind2 = np.asarray(chans) == chan
-
-                    # loop through the chunks
-                    for kk in range(
-                        start_hour_file[ii], end_hour_file[ii] + np.uint64(1)
-                    ):
-                        ind1 = np.asarray(hours) == kk
-                        if ~np.any(ind1 & ind2):
-                            continue
-                        file_num = np.where(ind1 & ind2)[0][0]
-
-                        # read rest of file into data array as correct format
-                        data[varname]["name"] = temp_event_name
-                        data[varname]["fs"] = fs
-
-                        # skip data load if there are gaps
-                        if file_list_temp[file_num]["gap_text"] != "":
-                            return data
-
-                        # open file
-                        with open(file_list_temp[file_num]["fullname"], "rb") as f:
-
-                            # skip first 40 bytes from header
-                            f.seek(40, os.SEEK_SET)
-
-                            if kk == start_hour_file[ii]:
-                                firstSample = start_hour_samples_to_skip[ii]
-                            else:
-                                firstSample = 0
-
-                            if kk == end_hour_file[ii]:
-                                lastSample = end_hour_samples_end[ii]
-                            else:
-                                lastSample = MAX_UINT64
-
-                            # skip ahead
-                            if firstSample > 0:
-                                f.seek(
-                                    int(
-                                        firstSample
-                                        * file_list_temp[file_num]["itemsize"]
-                                    ),
-                                    os.SEEK_CUR,
-                                )
-
-                            if lastSample == MAX_UINT64:
-                                ddd = np.frombuffer(f.read(), dtype=data_format)
-                            else:
-                                ddd = np.frombuffer(
-                                    f.read(
-                                        int(
-                                            (lastSample - firstSample + 1)
-                                            * file_list_temp[file_num]["itemsize"]
-                                        )
-                                    ),
-                                    dtype=data_format,
-                                )
-
-                            if export in ["binary"]:
-                                if scale != 1:
-                                    ddd = (np.float64(ddd) * np.float64(scale)).astype(
-                                        data_format
                                     )
-                                ddd.astype(export_type, copy=False).T.tofile(
-                                    file_handles[chan]
-                                )
-                            else:
-                                data[varname].data[ii][
-                                    arr_index,
-                                    int(chan_index) : (int(chan_index + len(ddd))),
-                                ] = ddd
-                                arr_index += 1
-                                chan_index += len(ddd)
+                                ),
+                                dtype=data_format,
+                            )
+                            data[varname].data[ii][
+                                arr_index,
+                                int(chan_index) : (int(chan_index + len(ddd))),
+                            ] = ddd
+                            arr_index += 1
+                            chan_index += len(ddd)
 
                         # if verbose:
                         #    print(file_list[file_num])
-        if export is None:
-            if num_ranges == 1:
-                data[varname].data = data[varname].data[ii]
-            if len(channels) == 1:
-                data[varname].data = data[varname].data[ii]
-
-    if export is not None:
-        return None
+        
     return data
 
 
@@ -922,6 +703,14 @@ def header_to_text(header, scale):
         hhh.append("")
     return "\n".join(hhh)
 
+# a type for evtypes which is a list of strings that can contain ['all', 'epocs', 'snips', 'streams', or 'scalars'].
+class EvType(StrEnum):
+    ALL = "all"
+    EPOCS = "epocs"
+    SNIPS = "snips"
+    STREAMS = "streams"
+    SCALARS = "scalars"
+
 
 def read_block(
     block_path,
@@ -933,19 +722,15 @@ def read_block(
     nodata=False,
     ranges=None,
     store="",
-    t1=0,
-    t2=0,
-    evtype=None,
+    t1: int =0,
+    t2: int =0,
+    evtype: List[EvType] = [EvType.ALL],
     verbose=0,
     sortname="TankSort",
     export=None,
     scale=1,
-    dtype=None,
-    outdir=None,
-    prefix=None,
-    outfile=None,
-    signal: ProgressSignals = None
-):
+    signal: ProgressSignals = None,
+) -> Block:
     """TDT tank data extraction.
 
     data = read_block(block_path), where block_path is a string, retrieves
@@ -1017,30 +802,8 @@ def read_block(
                         interlaced: streaming data exported as raw binary files
                                     one file per store, data is interlaced
         scale       float, scale factor for exported streaming data. Default = 1.
-        dtype       string, data type for exported binary data files
-                        None: Uses the format the data was stored in (default)
-                        'i16': Converts all data to 16-bit integer format
-                        'f32': Converts all data to 32-bit integer format
-        outdir      string, output directory for exported files. Defaults to current
-                        block folder if not specified
-        prefix      string, prefix for output file name. Defaults to None
-        outfile     string, output file name for exported files. Defaults to 'export'
-                        if not specified
         signal      a pyqt signal object, if specified, progress updates will be sent
     """
-
-    if outdir is None and export is not None:
-        outdir = block_path
-    if outdir is not None and export is None:
-        warnings.warn(
-            "no export is selected, outdir parameter is ignored", Warning, stacklevel=2
-        )
-    if outfile is None and export is not None:
-        outfile = "export." + export
-    if outfile is not None and export is None:
-        warnings.warn(
-            "no export is selected, outfile parameter is ignored", Warning, stacklevel=2
-        )
 
     if not hasattr(evtype, "__len__"):
         evtype = ["all"]
@@ -1052,15 +815,7 @@ def read_block(
 
     if "all" in evtype:
         evtype = ["epocs", "snips", "streams", "scalars"]
-    else:
-        for given_type in evtype:
-            if given_type not in tdt.ALLOWED_EVTYPES:
-                # print(
-                #     "Unrecognized type: {0}\nAllowed types are: {1}".format(
-                #         given_type, tdt.ALLOWED_EVTYPES
-                #     )
-                # )
-                return None
+
     evtype = list(set(evtype))
 
     use_outside_headers = False
@@ -1098,9 +853,6 @@ def read_block(
                     verbose=verbose,
                     export=export,
                     scale=scale,
-                    dtype=dtype,
-                    outdir=outdir,
-                    prefix=prefix,
                 )
             else:
                 raise Exception("no TSQ file found in {0}".format(block_path))
@@ -1407,7 +1159,6 @@ def read_block(
         header.stores = tdt.StructType()
         code_ct = 0
         while True:
-
             # read all headers into one giant array
             heads = np.frombuffer(tsq.read(read_size * 4), dtype=np.uint32)
             if len(heads) == 0:
@@ -1563,7 +1314,6 @@ def read_block(
 
                 # look for notes in 'freqs' field for epoch or scalar events
                 if len(note_str) > 0 and store_code["type_str"] in ["scalars", "epocs"]:
-
                     # find all possible notes for this store
                     user_notes = heads[9, valid_ind].view(np.uint32)
 
@@ -1781,7 +1531,6 @@ def read_block(
                         header.stores.pop(var_name)
 
         for var_name in header.stores.keys():
-
             # convert cell arrays to regular arrays
             if "ts" in header.stores[var_name].keys():
                 header.stores[var_name].ts = np.concatenate(
@@ -1833,7 +1582,6 @@ def read_block(
 
     # loop through all possible stores and do full time filter
     for var_name in header.stores.keys():
-
         current_type_str = header.stores[var_name].type_str
 
         if current_type_str not in evtype:
@@ -2310,9 +2058,6 @@ def read_block(
                     fs=expected_fs,
                     export=export,
                     scale=scale,
-                    dtype=dtype,
-                    outdir=outdir,
-                    prefix=prefix,
                 )
                 if d is not None:  # exporter returns None
                     detected_fs = d[current_name].fs
@@ -2535,9 +2280,6 @@ def read_block(
                     ranges=ranges,
                     export=export,
                     scale=scale,
-                    dtype=dtype,
-                    outdir=outdir,
-                    prefix=prefix,
                 )
                 if d is not None:  # exporting returns None
                     data.streams[sev_name] = d[sev_name]
@@ -2645,7 +2387,7 @@ class TDTLoader(QObject):
         self.block = None
 
     def load_block(self):
-        self.block = read_block(self.path, signal=self.signals)
+        self.block = read_block(self.path, signal=self.signals, evtype=["epocs"])
 
     def run(self):
         self.load_block()

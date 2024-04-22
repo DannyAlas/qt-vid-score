@@ -3,8 +3,11 @@ from typing import TYPE_CHECKING, Literal, Optional
 from uuid import uuid4
 
 from qtpy.QtGui import QBrush, QColor, QKeySequence
-from qtpy.QtWidgets import (QGraphicsRectItem, QGraphicsSceneMouseEvent,
-                            QGraphicsTextItem)
+from qtpy.QtWidgets import (
+    QGraphicsRectItem,
+    QGraphicsSceneMouseEvent,
+    QGraphicsTextItem,
+)
 
 from video_scoring.widgets.timeline.behavior_items import OnsetOffsetItem
 

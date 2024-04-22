@@ -3,12 +3,11 @@ import json
 import logging
 import os
 import zipfile
-from typing import (TYPE_CHECKING, Any, Dict, List, Literal, Tuple, TypeVar,
-                    Union)
+from enum import IntEnum
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Tuple, TypeVar, Union
 from uuid import UUID, uuid4
 
 import numpy as np
-import pandas as pd
 import sentry_sdk
 from pydantic import BaseModel, Field, field_validator
 from qtpy.QtCore import QByteArray
@@ -27,6 +26,20 @@ dtT = TypeVar("dtT", datetime.datetime, str)
 VERSION = os.environ.get("VERSION", "")
 if VERSION == "":
     log.error("VERSION environment variable not set")
+
+
+class RootLabDefaultEventCodes(IntEnum):
+    Mag_CSe = 47103
+    Mag_CSm = 48127
+    Mag_CSp_Pump = 48607
+    Mag_CSp = 48639
+    Mag = 49151
+    CSe = 63487
+    CSm = 64511
+    Pump_CSp = 64991
+    CSp = 65023
+    Pump = 65503
+    Offset = 65535
 
 
 class Message(BaseModel):
@@ -209,7 +222,7 @@ class KeyBindings(AbstSettings):
         return self.__dict__.items()
 
 
-class TDTData(BaseModel):
+class TDTSettings(BaseModel):
     """
     A class to serialize the data of a TDT block.
 
@@ -248,98 +261,6 @@ class TDTData(BaseModel):
     video_path: Union[None, str, List[str]] = None
     frame_ts_dict: Union[None, Dict[int, float]] = None
 
-    def get_video_path(self):
-        """
-        We will assume that the video file is in the same folder as the tank file.
-
-        Returns
-        -------
-        str
-            The path to the video file
-
-        Raises
-        ------
-        ValueError
-            If there is no video file
-        ValueError
-            If there are multiple video files
-        """
-        video_files = [
-            f
-            for f in os.listdir(self.blockpath)
-            if f.endswith(".mp4") or f.endswith(".avi") or f.endswith(".mov")
-        ]
-        if len(video_files) == 0:
-            raise ValueError("There is no video file")
-        elif len(video_files) > 1:
-            raise ValueError("There are multiple video files")
-        else:
-            return os.path.join(self.blockpath, video_files[0])
-
-    def get_frame_ts(
-        self,
-        block: dict,
-        epoch_type: Union[Literal["onset"], Literal["offset"]] = "onset",
-    ) -> dict:
-        """
-        Creates a dictionary of the timestamps for each video frame. The keys are the frame numbers and the values are the timestamps. The timestamps are either the onset or offset timestamps of the epoc specified by `epoch_type`.
-
-        Returns
-        -------
-        Union[None, dict  ]
-            A dictionary of the timestamps for each video frame
-
-        Raises
-        ------
-        ValueError
-            If there is no video file
-        """
-        frame_ts = {}
-
-        if epoch_type == "onset":
-            for i in range(len(block.epocs.Cam1.onset)):
-                t = block.epocs.Cam1.onset[i]
-                frame_ts[i] = t
-        elif epoch_type == "offset":
-            for i in range(len(block.epocs.Cam1.offset)):
-                t = block.epocs.Cam1.offset[i]
-                frame_ts[i] = t
-        else:
-            raise ValueError('epoch_type must be either "onset" or "offset"')
-
-        return frame_ts
-
-    def load_from_dict(self, data: dict):
-        self.tankpath = data.get("tankpath", None)
-        self.blockname = data.get("blockname", None)
-        self.blockpath = data.get("blockpath", None)
-        self.video_path = data.get("video_path", None)
-        self.start_date = data.get("start_date", None)
-        self.utc_start_time = data.get("utc_start_time", None)
-        self.stop_date = data.get("stop_date", None)
-        self.utc_stop_time = data.get("utc_stop_time", None)
-        self.duration = data.get("duration", None)
-        self.video_path = data.get("video_path", None)
-        self.frame_ts_dict = data.get("frame_ts_dict", None)
-
-    def load_from_block(self, block: dict):
-        # the block is a `TDStruct` type which is just a python dict with an overloaded __repr__
-        # the block contains a list of keys which are the names of the different data types
-        # each data type is itself another TDTStruct till we get to the data itself
-
-        # for now we will NOT convert the TDStruct to an object (we may change this later)
-        # we will simply provide methods to access the data in the TDStruct through this class
-        self.tankpath = str(block.info.tankpath)
-        self.blockname = str(block.info.blockname)
-        self.blockpath = os.path.join(self.tankpath, self.blockname)
-        self.start_date = str(block.info.start_date)
-        self.utc_start_time = str(block.info.utc_start_time)
-        self.stop_date = str(block.info.stop_date)
-        self.utc_stop_time = str(block.info.utc_stop_time)
-        self.duration = str(block.info.duration)
-        self.video_path = self.get_video_path()
-        self.frame_ts_dict = self.get_frame_ts(block=block)
-
 
 class OOBehaviorItemSetting(BaseModel):
     onset: int = 0
@@ -355,6 +276,12 @@ class BehaviorTrackSetting(BaseModel):
     save_unsure_timestamp_key_sequence: str = ""
 
 
+class FlagSetting(BaseModel):
+    name: str = ""
+    base_color: str = "#FFFFFF"
+    frame: int = 0
+
+
 class ScoringData(AbstSettings):
     """Represents the data associated with a scoring session"""
 
@@ -362,9 +289,10 @@ class ScoringData(AbstSettings):
     video_file_location: str = ""
     timestamp_file_location: str = ""
     timestamp_data: dict = {}
-    tdt_data: Union[TDTData, None] = None
+    tdt_data: Union[TDTSettings, None] = None
     scoring_type: Literal["onset/offset", "single"] = "onset/offset"
     behavior_tracks: List[BehaviorTrackSetting] = []
+    flags: List[FlagSetting] = []
 
     def __setattr__(self, name: str, value: Any) -> None:
         log.debug(f"Setting\t{name}\tto\t{value}")
@@ -409,7 +337,7 @@ class LocationAnalysis(BaseModel):
     method: Literal["dark", "abs", "light"] = "dark"
     rmv_wire: bool = False
     wire_krn: int = 5
-    location_df: Union[None, pd.DataFrame] = None
+    location_df: Union[None, np.ndarray] = None
     rois: List[ROI] = []
     crop: Union[None, Crop] = None
 
@@ -587,7 +515,10 @@ class ProjectSettings(AbstSettings):
             self.uid = uuid4()
             self.file_location = file
         # get UNHANDLED_EXCEPTION environment variable
-        if os.environ.get("UNHANDLED_EXCEPTION", "False") == "True" and not ignore_backup:
+        if (
+            os.environ.get("UNHANDLED_EXCEPTION", "False") == "True"
+            and not ignore_backup
+        ):
             main_win.app_settings.app_crash = AppCrash(
                 project_uid=self.uid,
             )
@@ -614,8 +545,12 @@ class ProjectSettings(AbstSettings):
                     backup_project.file_location = backup_project_file_location
                     backup_project.save(main_win=main_win, ignore_backup=True)
                     log.warning(f"Saving backup to {backup_project_file_location}")
-                    main_win.app_settings.app_crash.version = main_win.app_settings.version
-                    main_win.app_settings.app_crash.project_locations.append(backup_project_file_location)
+                    main_win.app_settings.app_crash.version = (
+                        main_win.app_settings.version
+                    )
+                    main_win.app_settings.app_crash.project_locations.append(
+                        backup_project_file_location
+                    )
                     main_win.app_settings.save()
                 except Exception as e:
                     # if we can't save the backup, set save the current changes to the backup so that we don't overwrite anything, and notify the user
@@ -623,7 +558,7 @@ class ProjectSettings(AbstSettings):
                     self.uid = uuid4()
                     self.file_location = backup_project_file_location
                     self.name = backup_project.name
-                    main_win.notify_wont_save(location = backup_project_file_location)
+                    main_win.notify_wont_save(location=backup_project_file_location)
 
             self.modified = datetime.datetime.now()
             dump = json.dumps(self.model_dump(), indent=4, cls=SettingsEncoder)
@@ -646,7 +581,7 @@ class ApplicationSettings(AbstSettings):
     device_id: str = Field(default_factory=get_device_id)
     file_location: str = user_data_dir("settings.json")
     theme: Literal["dark", "light"] = "dark"
-    joke_type: Literal["programming", "dad"] = "programming"
+    joke_type: Literal["programming", "dad"] = "dad"
     window_size: Tuple[int, int] = (1280, 720)
     window_position: Tuple[int, int] = (0, 0)
     projects: List[
@@ -696,6 +631,8 @@ class ApplicationSettings(AbstSettings):
 
     def save(self, file_location=None):
         if file_location is None:
+            if self.file_location == "":
+                self.file_location = user_data_dir("settings.json")
             file_location = self.file_location
         if not os.path.exists(os.path.dirname(file_location)):
             os.makedirs(os.path.dirname(file_location))

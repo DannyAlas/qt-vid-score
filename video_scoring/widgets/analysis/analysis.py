@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from qtpy import QtCore, QtGui, QtWidgets
 from qtpy.QtCore import Qt
 
-from video_scoring.widgets.analysis.roi.roi_analysis import ROIAnalysisWidget
+from video_scoring.widgets.analysis.freezing import FreezingWidget
 
 if TYPE_CHECKING:
     from video_scoring import MainWindow
@@ -21,7 +21,6 @@ class VideoAnalysisDock(QtWidgets.QDockWidget):
         self.layout = QtWidgets.QVBoxLayout()
         self.main_widget.setLayout(self.layout)
         self.setWidget(self.main_widget)
-        self.roi_analysis_widget = ROIAnalysisWidget(self.main_win)
         self.main_win.loaded.connect(self._init_ui)
         self.main_win.project_loaded.connect(self.refresh)
 
@@ -41,7 +40,10 @@ class VideoAnalysisDock(QtWidgets.QDockWidget):
         self.layout.addWidget(self.file_name_line, 0, 1)
         self.layout.addWidget(self.tab_widget, 1, 0, 1, 2)
 
-        self.tab_widget.addTab(self.roi_analysis_widget, "ROI Analysis")
+        self.freezing_widget = FreezingWidget(
+            analysis_widget=self, main_win=self.main_win
+        )
+        self.tab_widget.addTab(self.freezing_widget, "Freezing")
 
     def refresh(self):
         self.file_name_line.setText(
@@ -50,4 +52,3 @@ class VideoAnalysisDock(QtWidgets.QDockWidget):
         self.main_win.project_settings.analysis_settings.video_file_location = (
             self.main_win.project_settings.scoring_data.video_file_location
         )
-        self.roi_analysis_widget.refresh()

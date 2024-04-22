@@ -97,7 +97,6 @@ class LocationTracking(QtCore.QObject):
         self.anst.reference = self.Reference()
 
     def Reference(self, num_frames=1000, frames=None):
-
         if os.path.isfile(self.anst.file):
             cap = cv2.VideoCapture(self.anst.file)
         else:
@@ -138,7 +137,7 @@ class LocationTracking(QtCore.QObject):
             )  # make sure num_frames equals length of passed list
 
         collection = np.zeros((num_frames, h, w))
-        for (idx, framenum) in enumerate(frames):
+        for idx, framenum in enumerate(frames):
             grabbed = False
             while grabbed == False:
                 cap.set(cv2.CAP_PROP_POS_FRAMES, framenum)
@@ -170,7 +169,6 @@ class LocationTracking(QtCore.QObject):
         return reference
 
     def Locate(self, frame: np.ndarray, prior=None):
-
         # set window dimensions
         if prior != None and self.anst.use_window == True:
             window_size = self.anst.window_size // 2

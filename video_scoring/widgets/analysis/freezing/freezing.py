@@ -10,6 +10,7 @@ from video_scoring.widgets.progress import ProgressSignals
 # a simple app to edit the freezing parameters
 if TYPE_CHECKING:
     from video_scoring import MainWindow
+    from video_scoring.widgets.analysis.analysis import VideoAnalysisDock
 
 
 class MotionAnalysis(QtCore.QObject):
@@ -39,6 +40,16 @@ class MotionAnalysis(QtCore.QObject):
 
     def run(self):
         self.progress_signal.started.emit()
+        print(
+            self.file_path,
+            self.start_frame,
+            self.end_frame,
+            self.dsmpl_ratio,
+            self.motion_threshold,
+            self.gaussian_sigma,
+            self.freezing_threshold,
+            self.min_duration,
+        )
         cap = cv2.VideoCapture(self.file_path)
         cap_max = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         cap_max = int(self.end_frame) if self.end_frame is not None else cap_max
@@ -47,6 +58,7 @@ class MotionAnalysis(QtCore.QObject):
         # Initialize first frame and array to store motion values in
         ret, frame_new = cap.read()
         frame_new = cv2.cvtColor(frame_new, cv2.COLOR_BGR2GRAY)
+
         if self.dsmpl_ratio < 1:
             frame_new = cv2.resize(
                 frame_new,
@@ -104,7 +116,6 @@ class MotionAnalysis(QtCore.QObject):
         # Define periods where motion is below thresh for minduration as freezing
         Freezing = (CumThresh >= self.min_duration).astype(int)
         for x in range(len(Freezing) - 2, -1, -1):
-
             if (
                 Freezing[x] == 0
                 and Freezing[x + 1] > 0
@@ -121,12 +132,16 @@ class MotionAnalysis(QtCore.QObject):
 
 
 class FreezingWidget(QtWidgets.QWidget):
-    def __init__(self, file_path, vid_frame_len, main_win: "MainWindow", parent=None):
+    def __init__(
+        self, analysis_widget: "VideoAnalysisDock", main_win: "MainWindow", parent=None
+    ):
         super().__init__(parent=parent)
-        self.fpath = file_path
+        self.analysis_widget = analysis_widget
+        self.fpath = analysis_widget.file_name_line.text()
+        print(self.fpath)
+        self.main_win = main_win
         self.start = 0
-        self.end = None
-        self.vid_len = vid_frame_len
+        self.vid_len = 10000
         self.dsmpl = 1
         self.main_win = main_win
 
@@ -263,7 +278,7 @@ class FreezingWidget(QtWidgets.QWidget):
             name = f"Freezing Analysis {len(self.main_win.timeline_dw.timeline_view.behavior_tracks)}"
         self.main_win.timeline_dw.timeline_view.add_behavior_track(name)
         for behavior in self.freezing_behaviors:
-            self.main_win.timeline_dw.timeline_view.add_oo_behavior(
+            self.main_win.timeline_dw.timeline_view.silent_add_oo_behavior(
                 onset=behavior[0],
                 track_idx=self.main_win.timeline_dw.timeline_view.get_track_idx_from_name(
                     name

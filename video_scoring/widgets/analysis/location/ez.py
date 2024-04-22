@@ -174,7 +174,7 @@ def Reference(video_dict, num_frames=100, altfile=False, fstfile=False, frames=N
         num_frames = len(frames)  # make sure num_frames equals length of passed list
 
     collection = np.zeros((num_frames, h, w))
-    for (idx, framenum) in enumerate(frames):
+    for idx, framenum in enumerate(frames):
         grabbed = False
         while grabbed == False:
             cap.set(cv2.CAP_PROP_POS_FRAMES, framenum)
@@ -330,7 +330,6 @@ def TrackLocation(video_dict, tracking_params):
     # Loop through frames to detect frame by frame differences
     time.sleep(0.2)  # allow printing
     for f in tqdm(range(len(D))):
-
         if f > 0:
             yprior = np.around(Y[f - 1]).astype(int)
             xprior = np.around(X[f - 1]).astype(int)
@@ -775,7 +774,6 @@ def Batch_Process(video_dict, tracking_params, bin_dict, accept_p_frames=False):
 
     images = []
     for file in video_dict["FileNames"]:
-
         print("Processing File: {f}".format(f=file))
         video_dict["file"] = file
         video_dict["fpath"] = os.path.join(os.path.normpath(video_dict["dpath"]), file)
@@ -1450,9 +1448,7 @@ def DistanceTool(video_dict):
         if len(x_ls) > 1:
             x_dist = x_ls[0] - x_ls[1]
             y_dist = y_ls[0] - y_ls[1]
-            distance["px_distance"] = np.around(
-                (x_dist**2 + y_dist**2) ** (1 / 2), 3
-            )
+            distance["px_distance"] = np.around((x_dist**2 + y_dist**2) ** (1 / 2), 3)
             text = "{dist} px".format(dist=distance["px_distance"])
         return hv.Labels((x_ctr, y_ctr, text if len(x_ls) > 1 else "")).opts(
             text_color="blue", text_font_size="14pt"
@@ -1468,7 +1464,6 @@ def DistanceTool(video_dict):
 
 
 def setScale(distance, scale, scale_dict):
-
     """
     -------------------------------------------------------------------------------------
 
@@ -1604,9 +1599,7 @@ def ScaleDistance(video_dict, df=None, column=None):
     else:
         print(
             "Distance between reference points undefined. Cannot scale column: {c}.\
-        Returning original dataframe".format(
-                c=column
-            )
+        Returning original dataframe".format(c=column)
         )
     return df
 

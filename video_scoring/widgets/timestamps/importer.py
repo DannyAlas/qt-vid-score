@@ -1,16 +1,15 @@
 import enum
-import re
-from calendar import c
 from typing import TYPE_CHECKING, TypeVar
 
 import pandas as pd
 from qtpy import QtCore, QtGui, QtWidgets
 
-from video_scoring.settings import TDTData
-from video_scoring.widgets.loaders import TDTLoader
+from video_scoring.widgets.tdt import TDT, TDTLoader
 
 if TYPE_CHECKING:
     from video_scoring import MainWindow
+
+
 # enum for delimiters
 class Delimiters(enum.Enum):
     TAB = "\t"
@@ -425,22 +424,7 @@ class TDTImporter(QtWidgets.QWidget):
                 )
 
     def load_block(self, loader: TDTLoader):
-        self.main_win.save_settings()
-        self.main_win.project_settings.scoring_data.tdt_data = TDTData()
-        self.main_win.project_settings.scoring_data.tdt_data.load_from_block(
-            loader.block
-        )
-        self.main_win.project_settings.scoring_data.video_file_location = (
-            self.main_win.project_settings.scoring_data.tdt_data.video_path
-        )
-        self.block_line.setText(
-            self.main_win.project_settings.scoring_data.tdt_data.blockname
-        )
-        self.block_line.setToolTip(
-            self.main_win.project_settings.scoring_data.tdt_data.blockpath
-        )
-        self.main_win.save_settings()
-        self.main_win._loaders()
+        self.main_win.load_block(loader.block)
 
     def name_line_changed(self):
         self.name = self.name_line.text()

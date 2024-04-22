@@ -19,14 +19,18 @@ from video_scoring.settings import (
     Layout,
     ProjectSettings,
     Settings,
-    TDTData,
+    TDTSettings,
 )
-from video_scoring.widgets.loaders import TDTLoader
+from video_scoring.utils import user_data_dir
+from video_scoring.widgets.analysis import VideoAnalysisDock
+from video_scoring.widgets.tdt import TDTLoader
 from video_scoring.widgets.progress import ProgressBar, ProgressSignals
 from video_scoring.widgets.projects import ProjectsWidget
 from video_scoring.widgets.reporting import FeedbackDialog
 from video_scoring.widgets.settings import SettingsDockWidget
 from video_scoring.widgets.style_sheet import DynamicIcon, StyleSheet
+from video_scoring.widgets.tdt import TDT
+from video_scoring.widgets.timestamps.importer import TimestampsImporter
 from video_scoring.widgets.timeline import TimelineDockWidget
 from video_scoring.widgets.timestamps import TimeStampsDockwidget
 from video_scoring.widgets.update import (
@@ -36,7 +40,6 @@ from video_scoring.widgets.update import (
     Updater,
 )
 from video_scoring.widgets.video.frontend import VideoPlayerDockWidget
-from video_scoring.utils import user_data_dir
 
 log = logging.getLogger("video_scoring")
 
@@ -54,6 +57,7 @@ class MainWindow(QMainWindow):
         self.main_widget = QtWidgets.QWidget()
         self.command_stack = CommandStack()
         self.style_sheet = StyleSheet(main_win=self)
+        self.tdt: Union[TDT, None] = None
         self.app_settings = self.settings.app_settings
         self.project_settings = None
         self.menu = None
@@ -322,6 +326,7 @@ class MainWindow(QMainWindow):
     def _run_installer(self):
         # if we're on windows, run the installer
         import sys  # lazy import
+
         from video_scoring.utils import run_exe_as_admin
 
         if not sys.platform.startswith("win"):
@@ -364,7 +369,6 @@ class MainWindow(QMainWindow):
     def update_status(
         self, message: str, log_level=logging.DEBUG, do_log=True, display_warning=True
     ):
-
         if self.status_bar is not None:
             self.status_bar.showMessage(str(message))
         if display_warning and log_level == logging.WARN:
@@ -697,8 +701,6 @@ class MainWindow(QMainWindow):
     def import_timestamps(self):
         # try save current project
         self.save_settings()
-        from video_scoring.widgets.timestamps.importer import TimestampsImporter
-
         self.ts_importer = TimestampsImporter(self)
         self.ts_importer.imported.connect(
             lambda name, data: self.timeline_dw.import_timestamps(name, data)
@@ -738,13 +740,19 @@ class MainWindow(QMainWindow):
     def load_block(self, loader: TDTLoader):
         """We assume that a tdt_loader object has loaded its block property"""
         # FIXME: proper loading please :)
+
         try:
             self.save_settings()
-            self.project_settings.scoring_data.tdt_data = TDTData()
-            self.project_settings.scoring_data.tdt_data.load_from_block(loader.block)
-            self.project_settings.scoring_data.video_file_location = (
-                self.project_settings.scoring_data.tdt_data.video_path
-            )
+            self.project_settings.scoring_data.tdt_data = TDTSettings()
+            self.tdt = TDT(loader.block, self.project_settings.scoring_data.tdt_data)
+            self.tdt.load_settings_from_block(loader.block)
+            log.info(self.tdt.block.info.blockpath)
+            try:
+                self.project_settings.scoring_data.video_file_location = (
+                    self.tdt.get_video_path()
+                )
+            except:
+                self.project_settings.scoring_data.video_file_location = ""
             self.update_status(
                 f"Imported video at {self.project_settings.scoring_data.video_file_location}"
             )
@@ -788,13 +796,13 @@ class MainWindow(QMainWindow):
         self.dock_widgets_menu.addAction(self.timeline_dw.toggleViewAction())
         self.timeline_dw.setObjectName("timeline_dw")
         self.timeline_dw.hide()
-        # self.analysis_dw = VideoAnalysisDock(self)
-        # self.analysis_dw.setObjectName("analysis_dw")
-        # self.addDockWidget(
-        #     QtCore.Qt.DockWidgetArea.LeftDockWidgetArea, self.analysis_dw
-        # )
-        # self.dock_widgets_menu.addAction(self.analysis_dw.toggleViewAction())
-        # self.analysis_dw.hide()
+        self.analysis_dw = VideoAnalysisDock(self)
+        self.analysis_dw.setObjectName("analysis_dw")
+        self.addDockWidget(
+            QtCore.Qt.DockWidgetArea.LeftDockWidgetArea, self.analysis_dw
+        )
+        self.dock_widgets_menu.addAction(self.analysis_dw.toggleViewAction())
+        self.analysis_dw.hide()
 
     def load_doc_widgets(self):
         self.addDockWidget(
@@ -962,6 +970,9 @@ class MainWindow(QMainWindow):
         try:
             self.project_settings.scoring_data.behavior_tracks = (
                 self.timeline_dw.serialize_tracks()
+            )
+            self.project_settings.scoring_data.flags = (
+                self.timeline_dw.serialize_flags()
             )
             self.project_settings.last_layout = self.get_layout()
             self.project_settings.save(main_win=self, file=project_file_location)

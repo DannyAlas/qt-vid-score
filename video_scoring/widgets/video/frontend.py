@@ -8,8 +8,14 @@ from PyQt6.QtGui import QMouseEvent, QPaintEvent, QResizeEvent
 from qtpy import QtCore, QtGui, QtWidgets
 from qtpy.QtCore import QObject, Qt, QThread, Signal, Slot
 from qtpy.QtGui import QImage, QPixmap
-from qtpy.QtWidgets import (QDockWidget, QLabel, QPushButton, QSizePolicy,
-                            QVBoxLayout, QWidget)
+from qtpy.QtWidgets import (
+    QDockWidget,
+    QLabel,
+    QPushButton,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
+)
 
 from video_scoring.utils.qt_create import create_qaction
 from video_scoring.widgets.video.backend import VideoPlayer
@@ -291,7 +297,6 @@ class PlayerControls(QWidget):
         self._init_ui()
 
     def _init_ui(self):
-
         # controls toolbar
         self.controls_toolbar = QtWidgets.QToolBar()
         self.controls_toolbar.setToolButtonStyle(

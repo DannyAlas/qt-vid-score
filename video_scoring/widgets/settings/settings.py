@@ -5,11 +5,15 @@ import qdarktheme
 from qtpy import QtCore, QtGui, QtWidgets
 from qtpy.QtCore import Qt
 
-from video_scoring.settings.base_settings import (AbstSettings,
-                                                  ApplicationSettings,
-                                                  BehaviorTrackSetting,
-                                                  Playback, ProjectSettings,
-                                                  Scoring, ScoringData)
+from video_scoring.settings.base_settings import (
+    AbstSettings,
+    ApplicationSettings,
+    BehaviorTrackSetting,
+    Playback,
+    ProjectSettings,
+    Scoring,
+    ScoringData,
+)
 from video_scoring.widgets.timeline import track
 
 if TYPE_CHECKING:
@@ -25,9 +29,7 @@ class SettingsDockWidget(QtWidgets.QDockWidget):
         self._init_ui()
         self.search_dict: dict[
             str, dict[QtWidgets.QTabWidget, QtWidgets.QWidget]
-        ] = (
-            {}
-        )  # a dict of the widgets in the settings dock widget where the key is the (human searchable) name and the value is the widget
+        ] = {}  # a dict of the widgets in the settings dock widget where the key is the (human searchable) name and the value is the widget
 
     def _init_ui(self):
         self.tool_bar = QtWidgets.QToolBar()
@@ -717,7 +719,6 @@ class SettingsDockWidget(QtWidgets.QDockWidget):
             )
         )
         if name is not None:
-
             track_settings.name = name
             self.reload_track_list()
 

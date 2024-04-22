@@ -9,9 +9,17 @@ import numpy as np
 from qtpy import QtGui
 from qtpy.QtCore import QMutex, QObject, Qt, QThread, QTimer, Signal, Slot
 from qtpy.QtGui import QAction, QIcon, QImage, QPixmap
-from qtpy.QtWidgets import (QApplication, QLabel, QMainWindow, QMenuBar,
-                            QPushButton, QSizePolicy, QSlider, QVBoxLayout,
-                            QWidget)
+from qtpy.QtWidgets import (
+    QApplication,
+    QLabel,
+    QMainWindow,
+    QMenuBar,
+    QPushButton,
+    QSizePolicy,
+    QSlider,
+    QVBoxLayout,
+    QWidget,
+)
 
 if TYPE_CHECKING:
     import numpy as np

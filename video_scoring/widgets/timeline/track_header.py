@@ -1,10 +1,10 @@
 from typing import TYPE_CHECKING, List, Optional, Union
 
 from PyQt6.QtCore import QEvent
-from PyQt6.QtGui import (QEnterEvent, QMouseEvent, QMoveEvent, QPaintEvent,
-                         QResizeEvent)
+from PyQt6.QtGui import QEnterEvent, QMouseEvent, QMoveEvent, QPaintEvent, QResizeEvent
 from PyQt6.sip import voidptr
 from qtpy import QtCore, QtGui, QtWidgets
+from video_scoring.widgets.ui.confimLineEdit import ConfirmLineEdit
 
 if TYPE_CHECKING:
     from video_scoring.widgets.timeline.timeline import TimelineView
@@ -24,6 +24,14 @@ class TrackHeadersOptionsToolBar(QtWidgets.QToolBar):
         self.setContentsMargins(0, 0, 0, 0)
         self.setOrientation(QtCore.Qt.Orientation.Horizontal)
         self.setToolButtonStyle(QtCore.Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.setStyleSheet(
+            """QToolBar { 
+            background-color: #2c2c2c; 
+            padding: 5px; 
+            border: 2px solid #3f4042;
+            border-radius: 5px;
+            }"""
+        )
         self.lock_sizes_action = QtWidgets.QAction(self)
         self.lock_sizes_action.setCheckable(True)
         self.lock_sizes_action.setChecked(False)
@@ -58,10 +66,24 @@ class TrackHeadersOptionsToolBar(QtWidgets.QToolBar):
         )
         self.addAction(self.add_track_action)
 
+        self.open_flags_action = QtWidgets.QAction(self)
+        self.open_flags_action.setToolTip("Open Flags Dialog")
+        self.open_flags_action.setIcon(
+            self._parent.timeline.main_window.get_icon(
+                "flag.png", self.open_flags_action
+            )
+        )
+        self.open_flags_action.triggered.connect(
+            self._parent.timeline.parent.open_flags_dialog
+        )
+
+        self.addAction(self.open_flags_action)
+
     def fit_track_heights(self):
         """When the fit track heights button is clicked fit the track heights"""
         self.lock_sizes_action.setChecked(False)
-        height_to_fit = self._parent.splitter.rect().height()
+        # -35 not sure why though
+        height_to_fit = self._parent.splitter.rect().height() - 35
         num_tracks = len(self._parent.track_headers)
         if num_tracks == 0:
             return
@@ -115,7 +137,7 @@ class RecordToggle(QtWidgets.QCheckBox):
         self.timeline = timeline
         self.setCheckable(True)
         self.setChecked(False)
-        self.setToolTip("Set track name to save on")
+        self.setToolTip("Save on this track")
         self.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
         self.setMouseTracking(True)
         self.hovered = False
@@ -165,47 +187,34 @@ class RecordToggle(QtWidgets.QCheckBox):
             painter.drawEllipse(self.circle_rect)
 
 
-class TrackLineEdit(QtWidgets.QLineEdit):
-    """A QLabel that is used to display the name of a track"""
+class TrackLineEdit(ConfirmLineEdit):
 
     def __init__(self, parent: "TrackHeader", timeline: "TimelineView"):
-        super().__init__(parent)
+        super().__init__(parent=parent, main_win=timeline.main_window, text=parent.track.name)
         self.timeline = timeline
         self._parent = parent
         self.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+        self.edit.setText(self._parent.track.name)
 
-        self.setMouseTracking(True)
-        self.setText(self._parent.track.name)
-        self.hovered = False
+    def save_func(self, text: str):
+        self._parent.track.update_name(text)
 
-    def setText(self, a0: str | None) -> None:
-        # limit to 8 characters
-        if len(a0) > 8:
-            a0 = a0[:8] + "..."
-        return super().setText(a0)
+    def sizeHint(self) -> QtCore.QSize:
+        return QtCore.QSize(200, self.edit.sizeHint().height() + 10) # 10 is padding
 
-    def mouseMoveEvent(self, a0: QMouseEvent | None) -> None:
-        self.hovered = True
-        return super().mouseMoveEvent(a0)
+class TrackSettingsButton(QtWidgets.QPushButton):
+    def __init__(self, parent: "TrackHeader"):
+        super().__init__(parent)
+        self._parent = parent
+        self.setToolTip("Settings")
+        self.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+        self.setIcon(self._parent.timeline.main_window.get_icon("settings.svg", self))
+        self.clicked.connect(self.open_settings)
 
-    def mousePressEvent(self, ev: QMouseEvent | None) -> None:
-        self.timeline.parent.rename_track(self._parent.track)
-        return super().mousePressEvent(ev)
-
-    def leaveEvent(self, a0: QEvent | None) -> None:
-        self.hovered = False
-        return super().leaveEvent(a0)
-
-    def paintEvent(self, event: QPaintEvent) -> None:
-        """Paint the label"""
-        painter = QtGui.QPainter(self)
-        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
-        if self.hovered:
-            painter.setPen(QtGui.QPen(QtGui.QColor("#9c9c9c"), 3))
-            painter.drawRoundedRect(0, 0, self.width(), self.height(), 5, 5)
-        # draw the text
-        painter.setPen(QtGui.QPen(QtGui.QColor("#ffffff")))
-        painter.drawText(self.rect(), QtCore.Qt.AlignmentFlag.AlignCenter, self.text())
+    def open_settings(self):
+        dialog = TrackSettingsDialog(self._parent, self._parent.track)
+        dialog.exec_()
+        self._parent.update()
 
 
 class TrackHeader(QtWidgets.QWidget):
@@ -227,6 +236,8 @@ class TrackHeader(QtWidgets.QWidget):
         self.customContextMenuRequested.connect(self.on_custom_context_menu_requested)
         self.layout = QtWidgets.QGridLayout(self)
 
+        self.settings_button = TrackSettingsButton(self)
+
         self.label = TrackLineEdit(self, self.timeline)
         self.label.setToolTip("Rename Track")
 
@@ -236,8 +247,9 @@ class TrackHeader(QtWidgets.QWidget):
         # move record button to the right edge
 
         # label takes up the first column fully
-        self.layout.addWidget(self.label, 0, 0, 1, 1)
-        self.layout.addWidget(self.record_button, 0, 1, 1, 1)
+        self.layout.addWidget(self.settings_button, 0, 0, 1, 1)
+        self.layout.addWidget(self.label, 0, 1, 1, 1)
+        self.layout.addWidget(self.record_button, 0, 2, 1, 1)
         self.setLayout(self.layout)
         self.setMinimumHeight(self.label.sizeHint().height() + 7)
         self.resize(
@@ -266,31 +278,16 @@ class TrackHeader(QtWidgets.QWidget):
 
     def get_context_menu(self):
         menu = QtWidgets.QMenu(self)
-        rename_action = QtWidgets.QAction("Rename", self)
-        rename_action.triggered.connect(
-            lambda: self.timeline.parent.rename_track(self.track)
-        )
-        menu.addAction(rename_action)
         delete_action = QtWidgets.QAction("Delete", self)
         delete_action.triggered.connect(
             lambda: self.timeline.parent.delete_behavior_track(self.track)
         )
-        menu.addAction(delete_action)
-        open_settings_action = QtWidgets.QAction("Settings", self)
-        open_settings_action.triggered.connect(self.open_settings)
-        menu.addAction(open_settings_action)
         return menu
 
     def on_custom_context_menu_requested(self, pos: QtCore.QPoint):
         """When the track header is right clicked show a context menu"""
         menu = self.get_context_menu()
         menu.exec_(self.mapToGlobal(pos))
-
-    def open_settings(self):
-        """Open the track settings dialog"""
-        dialog = TrackSettingsDialog(self, self.track)
-        dialog.exec_()
-        self.update()
 
     def on_record_button_clicked(self):
         """When the record button is clicked set the track_name_to_save_on for the timeline"""

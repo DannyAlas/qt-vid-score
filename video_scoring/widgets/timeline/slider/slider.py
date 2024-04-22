@@ -1,8 +1,13 @@
 from PyQt6.QtCore import QRectF, Qt
 from PyQt6.QtGui import QMouseEvent, QPainter
-from PyQt6.QtWidgets import (QApplication, QGraphicsScene,
-                             QGraphicsSceneHoverEvent, QGraphicsView,
-                             QStyleOptionGraphicsItem, QWidget)
+from PyQt6.QtWidgets import (
+    QApplication,
+    QGraphicsScene,
+    QGraphicsSceneHoverEvent,
+    QGraphicsView,
+    QStyleOptionGraphicsItem,
+    QWidget,
+)
 from qtpy import QtCore, QtGui, QtWidgets
 
 

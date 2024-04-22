@@ -13,7 +13,7 @@ os.environ["VERSION"] = VERSION  # WE MUST SET THIS BEFORE IMPORTING THE PROJECT
 from video_scoring import MainWindow
 from video_scoring.singleton_app import SingleInstanceApplication
 
-load_dotenv()
+# load_dotenv()
 log = logging.getLogger("video_scoring")
 
 

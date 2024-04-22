@@ -1,21 +1,24 @@
 import logging
 from typing import TYPE_CHECKING, List, Union
 
-from cv2 import resize
 from qtpy import QtGui, QtWidgets
-from qtpy.QtCore import QPoint, QPointF, QRectF, Qt, Signal, Slot
-from qtpy.QtGui import QPainter, QPen
-from qtpy.QtWidgets import (QDockWidget, QFrame, QGraphicsLineItem,
-                            QGraphicsScene, QGraphicsTextItem, QGraphicsView,
-                            QMenu)
+from qtpy.QtCore import QPoint, QRectF, Qt, Signal
+from qtpy.QtGui import QPainter
+from qtpy.QtWidgets import QDockWidget, QFrame, QGraphicsScene, QGraphicsView, QMenu
 
-from video_scoring.settings.base_settings import BehaviorTrackSetting
+from video_scoring.settings.base_settings import BehaviorTrackSetting, FlagSetting
 from video_scoring.widgets.timeline.behavior_items import OnsetOffsetItem
 from video_scoring.widgets.timeline.commands import (
-    AddBehaviorCommand, BatchDeleteBehaviorCommand, DeleteBehaviorCommand,
-    DeleteTrackCommand)
-from video_scoring.widgets.timeline.dialogs import (AddTrackDialog,
-                                                    RenameTrackDialog)
+    AddBehaviorCommand,
+    BatchDeleteBehaviorCommand,
+    DeleteBehaviorCommand,
+    DeleteTrackCommand,
+)
+from video_scoring.widgets.timeline.dialogs import (
+    AddTrackDialog,
+    RenameTrackDialog,
+    FlagsDialog,
+)
 from video_scoring.widgets.timeline.playhead import PlayheadLine
 from video_scoring.widgets.timeline.ruler import TimelineRuler
 from video_scoring.widgets.timeline.track import BehaviorTrack
@@ -108,9 +111,7 @@ class TimelineView(QGraphicsView):
         self.lmb_holding = False  # Whether the left mouse button is being held
         self.item_keys_to_hide: dict[
             int, "BehaviorTrack"
-        ] = (
-            {}
-        )  # A dict of key for the item to hide and the corresponding behavior track
+        ] = {}  # A dict of key for the item to hide and the corresponding behavior track
         self.item_keys_to_render: dict[
             "BehaviorTrack", List[int]
         ] = {}  # A dict of tracks with item onset or offset in the visible range
@@ -198,7 +199,7 @@ class TimelineView(QGraphicsView):
 
     def add_ts(self, ts, unsure=False) -> OnsetOffsetItem:
         track = self.get_track_from_name(self.track_name_to_save_on)
-        cur_itm = track.curr_behavior_item
+        cur_itm = track.curr_behavior_item or None
         if (
             cur_itm is None
         ):  # if we don't have a current item for this track, add a new item one
@@ -618,6 +619,10 @@ class TimelineDockWidget(QDockWidget):
         else:
             return None
 
+    def open_flags_dialog(self):
+        dialog = FlagsDialog(self)
+        dialog.exec()
+
     def set_track_to_save_on(self, track_name: str):
         self.timeline_view.track_name_to_save_on = track_name
 
@@ -822,8 +827,7 @@ class TimelineDockWidget(QDockWidget):
         self.main_win.timestamps_dw.update_tracks()
 
     def serialize_tracks(self) -> list[BehaviorTrackSetting]:
-        from video_scoring.settings import (BehaviorTrackSetting,
-                                            OOBehaviorItemSetting)
+        from video_scoring.settings import BehaviorTrackSetting, OOBehaviorItemSetting
 
         behavior_tracks = []
         for track in self.timeline_view.behavior_tracks:
@@ -846,6 +850,17 @@ class TimelineDockWidget(QDockWidget):
                 )
             )
         return behavior_tracks
+
+    def serialize_flags(self) -> list[FlagSetting]:
+        flags = []
+        for flag in self.timeline_ruler._view.flags.values():
+            flag_setting = FlagSetting(
+                name=flag.name,
+                base_color=flag.base_color.name(format=QtGui.QColor.NameFormat.HexRgb),
+                frame=flag.frame,
+            )
+            flags.append(flag_setting)
+        return flags
 
     def _save_all_to_csv(self):
         # will prompt the user to select a directory to save a csv file for each track

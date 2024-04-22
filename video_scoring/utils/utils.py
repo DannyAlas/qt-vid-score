@@ -66,7 +66,6 @@ def cmd_run(cmd):
 
 
 def get_device_id():
-
     if sys.platform.startswith("linux"):
         return cmd_run("cat /var/lib/dbus/machine-id") or cmd_run("cat /etc/machine-id")
 

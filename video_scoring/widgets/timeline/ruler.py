@@ -1,13 +1,15 @@
 import datetime
 import math
+import re
 from email.charset import QP
-from typing import TYPE_CHECKING, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
 from PyQt6.QtGui import QMouseEvent, QPaintEvent
 from qtpy import QtCore, QtGui, QtWidgets
 from qtpy.QtCore import QLineF, QMarginsF, QPointF, QRect, QRectF, Qt
 from qtpy.QtGui import QBrush, QColor, QPainter, QPen, QPolygonF
 
+from video_scoring.widgets.timeline.flag import FlagItem
 from video_scoring.widgets.timeline.marker import MarkerItem
 from video_scoring.widgets.timeline.playhead import Playhead
 
@@ -44,6 +46,7 @@ class TimelineRulerView(QtWidgets.QGraphicsView):
         self.tick_bottom = self.height()
         self.tick_top = self.tick_bottom - self.tick_size
         self.dragging_playhead = False
+        self.flags: Dict[int, FlagItem] = {}
         self._init_playhead()
         self._init_hover_line()
         self._init_marker()
@@ -54,6 +57,12 @@ class TimelineRulerView(QtWidgets.QGraphicsView):
         if isinstance(item, MarkerItem):
             # select the item
             context_menu = item.get_context_menu()
+            context_menu.exec(self.mapToGlobal(pos))
+        else:
+            context_menu = QtWidgets.QMenu()
+            # an init flag action
+            add_flag_action = context_menu.addAction("DEBUG INIT FLAGS")
+            add_flag_action.triggered.connect(self._init_flags)
             context_menu.exec(self.mapToGlobal(pos))
 
     def update_scene_rect(self, rect: QRectF):
@@ -77,6 +86,33 @@ class TimelineRulerView(QtWidgets.QGraphicsView):
         self.marker = MarkerItem(0, 0, self._timeline_view, self)
         self.marker.setVisible(False)
         self.scene().addItem(self.marker)
+
+    # TODO: fix
+    def _init_flags(self):
+        for flag in self._timeline_view.main_window.project_settings.scoring_data.flags:
+            self.add_flag(flag.frame, color=QColor(flag.base_color))
+
+    def add_flag(self, frame: int, color: QColor):
+        if frame not in self.flags:
+            flag = FlagItem(
+                frame=frame,
+                name="Flag",
+                color=color,
+                tview=self._timeline_view,
+                rview=self,
+                parent=self,
+            )
+            self.flags[frame] = flag
+            self.scene().addItem(flag)
+        else:
+            self.flags[frame].setBrush(QBrush(color))
+            self.scene().update()
+
+    def remove_flag(self, frame: int):
+        if frame in self.flags:
+            self.scene().removeItem(self.flags[frame])
+            self.flags.pop(frame)
+            self.scene().update()
 
     def get_visible_frames_with_x(self, dynamic_interval):
         """
@@ -377,6 +413,12 @@ class TimelineRulerView(QtWidgets.QGraphicsView):
                 - self.get_x_pos_of_frame(self.marker.onset),
                 50,
             )
+        for flag in self.flags.values():
+            flag.setPos(
+                self.get_x_pos_of_frame(flag.frame) - flag.width / 2,
+                self.height() - flag.height - 5,
+            )
+            flag.setZValue(10000)
 
 
 class TimelineRuler(QtWidgets.QWidget):
@@ -404,3 +446,6 @@ class TimelineRuler(QtWidgets.QWidget):
         self._view.setResizeAnchor(
             QtWidgets.QGraphicsView.ViewportAnchor.AnchorUnderMouse
         )
+
+    def add_flag(self, frame: int, color: QColor):
+        self._view.add_flag(frame, color)

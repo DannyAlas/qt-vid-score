@@ -321,12 +321,12 @@ class ProjectsWidget(QtWidgets.QWidget):
                 project = self.main_win.settings.get_project(uid)
             except Exception as e:
                 self.main_win.update_status(
-                    f"Failed to load project: {uid}\n\t{e}", logging.WARN
+                    f"Failed to load project: {uid}\n\t{e}", logging.INFO
                 )
                 return
             if project is None:
                 self.main_win.update_status(
-                    "Project not found", logging.WARN, display_error=True
+                    "Project not found", logging.INFO, display_error=True
                 )
                 return
             self.main_win.load_project(project)
@@ -405,7 +405,6 @@ class ProjectsWidget(QtWidgets.QWidget):
             uid = item.data(0, QtCore.Qt.ItemDataRole.UserRole)
             for project_t in self.main_win.app_settings.projects:
                 if str(project_t[0]) == str(uid):
-
                     self.main_win.app_settings.projects.remove(project_t)
                     self.main_win.app_settings.save()
 
